@@ -1,0 +1,49 @@
+exclude: \.md$
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.3.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  # isort (blocking)
+  - repo: local
+    hooks:
+      - id: isort
+        name: isort
+        entry: poetry run isort
+        language: system
+        types: [python]
+        files: ^(src|tests)/
+
+  # black (blocking)
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: poetry run black
+        language: system
+        types: [python]
+        files: ^(src|tests)/
+
+  # ruff (blocking)
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: poetry run ruff check
+        language: system
+        types: [python]
+        files: ^(src|tests)/
+
+  # mypy (blocking)
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: poetry run mypy src/
+        language: system
+        pass_filenames: false
+        files: src/
