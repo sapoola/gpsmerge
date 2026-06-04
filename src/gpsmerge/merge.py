@@ -1,9 +1,11 @@
 """Merge several activities into one.
 
-Today this module does one job: :func:`append`, which joins recordings that
+This module does the two merges that matter. :func:`append` joins recordings that
 happened one after another (your bike computer died and you finished on your
-phone) into a single continuous activity. Stacking -- overlaying two recordings
-of the same ride -- arrives in a later milestone and will live alongside it here.
+phone) into a single continuous activity. :func:`stack` overlays recordings of the
+same ride, taking a different sensor from each (GPS from a watch, power from a
+trainer). :func:`detect_mode` guesses which one a set of files wants, for the
+``auto`` mode.
 
 The merge works only on the canonical :class:`~gpsmerge.model.Activity`; it never
 touches GPX/TCX/FIT details. Readers have already turned files into the model and
@@ -14,10 +16,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from gpsmerge.config import Settings
 from gpsmerge.geo import haversine
 from gpsmerge.model import Activity, Device, Segment, TrackPoint
+from gpsmerge.resample import lerp
 
 # Two points at a seam are "the same point" (and one is dropped) if they are this
 # close in both time and space. A genuine next point is at least a sample apart in
@@ -30,6 +34,28 @@ DEFAULT_NOMINAL_DT_S = 1.0
 
 # Sorts activities with no timestamps last, without special-casing them.
 _FAR_FUTURE = datetime.max.replace(tzinfo=UTC)
+
+# Channels that stacking borrows from a chosen source onto the master track.
+# Time, position, and elevation always come from the master (position is never
+# interpolated), and distance is recomputed from positions -- so none are here.
+SCALAR_DONOR_CHANNELS = ("hr", "cad", "power", "temp", "speed")
+
+# Channels recorded as whole numbers: an interpolated value is rounded back.
+INTEGER_CHANNELS = frozenset({"hr", "cad", "power"})
+
+# The Settings field that names the source file for each user-selectable channel.
+_CHANNEL_SOURCE_FIELD = {
+    "hr": "hr_from",
+    "cad": "cadence_from",
+    "power": "power_from",
+    "temp": "temp_from",
+}
+
+# Auto mode reads how much the recordings overlap, as a fraction of the shorter
+# one. Above the high mark they are the same ride (stack); below the low mark they
+# are sequential (append); in between, auto cannot decide.
+STACK_OVERLAP_RATIO = 0.80
+APPEND_OVERLAP_RATIO = 0.10
 
 
 def append(activities: list[Activity], settings: Settings) -> Activity:
@@ -193,16 +219,219 @@ def _assign_distance(points: list[TrackPoint], ignore_big_gaps_m: float | None) 
 
 
 def _chosen_device(ordered: list[Activity], settings: Settings) -> Device:
-    """Return a copy of the device the merged file should be attributed to.
+    """Return a copy of the device an appended file should be attributed to.
 
     The user picks it with ``device_from``; by default it is the first input
     file. The returned :class:`Device` is a copy so the merged activity never
     shares state with an input.
     """
-    target = settings.device_from or (settings.inputs[0] if settings.inputs else None)
-    if target is not None:
-        wanted = str(target)
-        for activity in ordered:
-            if activity.source_path == wanted:
-                return replace(activity.device)
+    if settings.device_from is not None:
+        found = _activity_by_path(ordered, settings.device_from)
+        if found is not None:
+            return replace(found.device)
+    elif settings.inputs:
+        found = _activity_by_path(ordered, settings.inputs[0])
+        if found is not None:
+            return replace(found.device)
     return replace(ordered[0].device)
+
+
+def _activity_by_path(activities: list[Activity], path: Path) -> Activity | None:
+    """Return the activity read from ``path``, matched by source path, or None."""
+    wanted = str(path)
+    for activity in activities:
+        if activity.source_path == wanted:
+            return activity
+    return None
+
+
+def stack(activities: list[Activity], settings: Settings) -> Activity:
+    """Overlay recordings of the same ride, taking a different sensor from each.
+
+    One input is the *master*: it provides the timeline, position, and elevation,
+    copied verbatim -- position is never interpolated or invented. Each sensor
+    channel (heart rate, cadence, power, temperature, speed) is taken from its
+    chosen source and resampled onto the master's timestamps. Where a source has a
+    gap longer than ``max_gap_s`` the channel is left blank rather than guessed,
+    and when more than one source can supply a channel a later one fills the gaps
+    the first leaves.
+
+    Parameters
+    ----------
+    activities : list of Activity
+        The overlapping recordings to combine.
+    settings : Settings
+        Merge options: the per-channel sources, ``max_gap_s``, device choice, and
+        sport override.
+
+    Returns
+    -------
+    Activity
+        The master track enriched with the borrowed sensor channels.
+    """
+    master = _master(activities, settings)
+    donor_series = {
+        channel: [
+            _series(owner, channel)
+            for owner in _channel_owners(activities, settings, channel)
+        ]
+        for channel in SCALAR_DONOR_CHANNELS
+    }
+
+    segments: list[Segment] = []
+    for segment in master.segments:
+        points: list[TrackPoint] = []
+        for source in segment.points:
+            point = replace(source)  # keep the master's time, position, elevation
+            if source.time is not None:
+                seconds = source.time.timestamp()
+                for channel in SCALAR_DONOR_CHANNELS:
+                    sampled = _sample(
+                        donor_series[channel], seconds, settings.max_gap_s
+                    )
+                    setattr(point, channel, _finalize(channel, sampled))
+            points.append(point)
+        segments.append(Segment(points=points))
+
+    if settings.recompute_distance:
+        _assign_distance(_all_points(segments), settings.ignore_big_gaps_m)
+
+    return Activity(
+        sport=settings.sport or master.sport,
+        name=master.name,
+        device=_stack_device(activities, settings, master),
+        segments=segments,
+        time_created=master.time_created,
+    )
+
+
+def _master(activities: list[Activity], settings: Settings) -> Activity:
+    """Return the activity that provides position, time, and elevation.
+
+    The user picks it with ``position_from``; by default it is the input with the
+    most points carrying a position (the best GPS track).
+    """
+    if settings.position_from is not None:
+        chosen = _activity_by_path(activities, settings.position_from)
+        if chosen is not None:
+            return chosen
+    return max(activities, key=_position_point_count)
+
+
+def _position_point_count(activity: Activity) -> int:
+    """Return how many of an activity's points carry a latitude and longitude."""
+    return sum(1 for p in activity.points() if p.lat is not None and p.lon is not None)
+
+
+def _channel_owners(
+    activities: list[Activity], settings: Settings, channel: str
+) -> list[Activity]:
+    """Return the activities that supply ``channel``, best first.
+
+    If the user named a source for the channel, that is the only owner. Otherwise
+    every activity that recorded the channel is an owner, in input order, so a
+    later one can fill an earlier one's gaps.
+    """
+    field = _CHANNEL_SOURCE_FIELD.get(channel)
+    chosen = getattr(settings, field) if field is not None else None
+    if chosen is not None:
+        owner = _activity_by_path(activities, chosen)
+        return [owner] if owner is not None else []
+    return [a for a in activities if _has_channel(a, channel)]
+
+
+def _has_channel(activity: Activity, channel: str) -> bool:
+    """Return whether an activity records any value for ``channel``."""
+    return any(getattr(p, channel) is not None for p in activity.points())
+
+
+def _series(activity: Activity, channel: str) -> list[tuple[float, float]]:
+    """Return an activity's (time-seconds, value) samples for one channel, sorted."""
+    samples = [
+        (p.time.timestamp(), float(getattr(p, channel)))
+        for p in activity.points()
+        if p.time is not None and getattr(p, channel) is not None
+    ]
+    samples.sort()
+    return samples
+
+
+def _sample(
+    owner_series: list[list[tuple[float, float]]], seconds: float, max_gap_s: float
+) -> float | None:
+    """Interpolate the first owner that has a value at ``seconds``, else None."""
+    for series in owner_series:
+        value = lerp([seconds], series, max_gap_s)[0]
+        if value is not None:
+            return value
+    return None
+
+
+def _finalize(channel: str, value: float | None) -> float | int | None:
+    """Round an interpolated value back to an int for whole-number channels."""
+    if value is None:
+        return None
+    if channel in INTEGER_CHANNELS:
+        return int(round(value))
+    return value
+
+
+def _stack_device(
+    activities: list[Activity], settings: Settings, master: Activity
+) -> Device:
+    """Return a copy of the device a stacked file is attributed to.
+
+    The user picks it with ``device_from``; by default it is the master (the
+    position source).
+    """
+    if settings.device_from is not None:
+        chosen = _activity_by_path(activities, settings.device_from)
+        if chosen is not None:
+            return replace(chosen.device)
+    return replace(master.device)
+
+
+def detect_mode(activities: list[Activity]) -> str:
+    """Guess whether recordings should be stacked, appended, or are ambiguous.
+
+    Looks at how much the recordings overlap in time, as a fraction of the
+    shorter one: a large overlap means the same ride recorded twice (stack), a
+    tiny one means back-to-back recordings (append), and anything between is left
+    for the user to decide.
+
+    Parameters
+    ----------
+    activities : list of Activity
+        The recordings to classify.
+
+    Returns
+    -------
+    str
+        ``"stack"``, ``"append"``, or ``"ambiguous"``.
+    """
+    spans = [_span(a) for a in activities]
+    if len(activities) < 2 or any(span is None for span in spans):
+        return "ambiguous"
+
+    valid = [span for span in spans if span is not None]
+    latest_start = max(start for start, _ in valid)
+    earliest_end = min(end for _, end in valid)
+    overlap = (earliest_end - latest_start).total_seconds()
+    shortest = min((end - start).total_seconds() for start, end in valid)
+    if shortest <= 0:
+        return "ambiguous"
+
+    ratio = max(0.0, overlap) / shortest
+    if ratio > STACK_OVERLAP_RATIO:
+        return "stack"
+    if ratio < APPEND_OVERLAP_RATIO:
+        return "append"
+    return "ambiguous"
+
+
+def _span(activity: Activity) -> tuple[datetime, datetime] | None:
+    """Return an activity's (first, last) timestamps, or None if it has none."""
+    times = [p.time for p in activity.points() if p.time is not None]
+    if not times:
+        return None
+    return min(times), max(times)

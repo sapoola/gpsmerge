@@ -18,3 +18,7 @@ All notable changes to this project are documented here. The format is based on 
 - Append options: gap policy (`--gap-policy pause|shift`), seam de-duplication, and distance recompute with `--ignore-gaps-over-meters`.
 - Pre-merge validation with a clear exit-code taxonomy, a sanity-checked preview (with large-gap warnings), `--dry-run`, and `--json` output.
 - `docs/merge-algorithms.md` explaining how append works.
+- `gpsmerge run --mode stack`: overlay two recordings of the same ride and take a different sensor from each (GPS from a watch, power from a trainer).
+- Per-channel source selection for stacking (`--position-from`, `--hr-from`, `--cadence-from`, `--power-from`, `--temp-from`) and `--max-gap-seconds`, with multi-source fallback and whole-number rounding of heart rate / cadence / power.
+- Automatic mode detection (`--mode auto`, the default): stack vs append chosen from how much the recordings overlap; a genuinely ambiguous overlap asks you to pick.
+- `docs/merge-algorithms.md` extended with the stacking and auto-mode sections.

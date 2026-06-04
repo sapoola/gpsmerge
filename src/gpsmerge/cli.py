@@ -63,12 +63,38 @@ def run(
         ..., "--out", "-o", help="Where to write the merged file."
     ),
     mode: str = typer.Option(
-        "append", "--mode", help="Merge mode. Only 'append' is available so far."
+        "auto",
+        "--mode",
+        help="How to combine the files: 'auto', 'append', or 'stack'.",
+    ),
+    max_gap_seconds: float = typer.Option(
+        10.0,
+        "--max-gap-seconds",
+        help="When stacking, do not interpolate a channel across a source gap "
+        "longer than this many seconds.",
+    ),
+    position_from: Path | None = typer.Option(
+        None,
+        "--position-from",
+        help="When stacking, which input provides position (default: best GPS).",
+    ),
+    hr_from: Path | None = typer.Option(
+        None, "--hr-from", help="When stacking, which input provides heart rate."
+    ),
+    cadence_from: Path | None = typer.Option(
+        None, "--cadence-from", help="When stacking, which input provides cadence."
+    ),
+    power_from: Path | None = typer.Option(
+        None, "--power-from", help="When stacking, which input provides power."
+    ),
+    temp_from: Path | None = typer.Option(
+        None, "--temp-from", help="When stacking, which input provides temperature."
     ),
     gap_policy: str = typer.Option(
         "pause",
         "--gap-policy",
-        help="How to treat the gap between recordings: 'pause' or 'shift'.",
+        help="When appending, how to treat the gap between recordings: "
+        "'pause' or 'shift'.",
     ),
     ignore_gaps_over_meters: float | None = typer.Option(
         None,
@@ -102,20 +128,19 @@ def run(
         False, "--json", help="Print a machine-readable summary instead of text."
     ),
 ) -> None:
-    """Merge GPS files into one. Currently appends sequential recordings."""
-    if mode != "append":
-        typer.secho(
-            f"only 'append' mode is available so far (got {mode!r})",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(EXIT_USAGE)
-
+    """Merge GPS files into one: append sequential rides, or stack same-time ones."""
     try:
         settings = Settings.model_validate(
             {
                 "inputs": inputs,
                 "output": output,
+                "mode": mode,
+                "max_gap_s": max_gap_seconds,
+                "position_from": position_from,
+                "hr_from": hr_from,
+                "cadence_from": cadence_from,
+                "power_from": power_from,
+                "temp_from": temp_from,
                 "gap_policy": gap_policy,
                 "ignore_big_gaps_m": ignore_gaps_over_meters,
                 "dedupe": dedupe,

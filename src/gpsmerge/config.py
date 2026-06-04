@@ -26,6 +26,20 @@ class Settings(BaseModel):
         The files to merge, in the order the user gave them.
     output : Path
         Where to write the merged file.
+    mode : {"auto", "append", "stack"}
+        How to combine the files. ``"append"`` joins sequential recordings;
+        ``"stack"`` overlays recordings of the same ride, taking a different
+        sensor from each; ``"auto"`` decides from whether the files overlap.
+    max_gap_s : float
+        When stacking, do not interpolate a borrowed channel across a gap in its
+        source longer than this many seconds (leave it blank instead).
+    position_from : Path or None
+        When stacking, which input provides position (and elevation). Defaults
+        to the input with the best GPS track.
+    hr_from, cadence_from, power_from, temp_from : Path or None
+        When stacking, which input provides each sensor channel. Defaults to the
+        inputs that recorded it, in order, so a second source fills the first's
+        gaps.
     gap_policy : {"pause", "shift"}
         How to treat the time gap between two appended recordings. ``"pause"``
         keeps the real timestamps so the gap shows as stopped time; ``"shift"``
@@ -53,6 +67,13 @@ class Settings(BaseModel):
 
     inputs: list[Path]
     output: Path
+    mode: Literal["auto", "append", "stack"] = "auto"
+    max_gap_s: float = 10.0
+    position_from: Path | None = None
+    hr_from: Path | None = None
+    cadence_from: Path | None = None
+    power_from: Path | None = None
+    temp_from: Path | None = None
     gap_policy: Literal["pause", "shift"] = "pause"
     ignore_big_gaps_m: float | None = None
     dedupe: bool = True

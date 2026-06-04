@@ -116,12 +116,12 @@ def test_run_merges_two_sequential_files(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_run_rejects_unavailable_mode(tmp_path: Path) -> None:
+def test_run_rejects_an_invalid_mode(tmp_path: Path) -> None:
     a, b = _two_sequential_files(tmp_path)
     output = tmp_path / "out.gpx"
 
     result = runner.invoke(
-        app, ["run", str(a), str(b), "--out", str(output), "--mode", "stack"]
+        app, ["run", str(a), str(b), "--out", str(output), "--mode", "sideways"]
     )
 
     assert result.exit_code == EXIT_USAGE
@@ -227,3 +227,152 @@ def test_run_device_from_attributes_the_chosen_input(tmp_path: Path) -> None:
     assert result.exit_code == 0
     written = read(output)
     assert written.device.name == "Stages Dash M50"  # the second file's device
+
+
+# --- stacking and auto mode-detection ------------------------------------
+
+# A GPX whose points carry heart rate via the Garmin TrackPointExtension, so a
+# stacked merge can borrow the channel from one file onto another's positions.
+_GPX_HR_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+<gpx creator="{creator}" version="1.1"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
+ <trk>
+  <type>cycling</type>
+  <trkseg>
+   <trkpt lat="{lat1}" lon="{lon1}">
+    <ele>5.0</ele>
+    <time>{time1}</time>
+    <extensions><gpxtpx:TrackPointExtension>
+     <gpxtpx:hr>{hr1}</gpxtpx:hr>
+    </gpxtpx:TrackPointExtension></extensions>
+   </trkpt>
+   <trkpt lat="{lat2}" lon="{lon2}">
+    <ele>6.0</ele>
+    <time>{time2}</time>
+    <extensions><gpxtpx:TrackPointExtension>
+     <gpxtpx:hr>{hr2}</gpxtpx:hr>
+    </gpxtpx:TrackPointExtension></extensions>
+   </trkpt>
+  </trkseg>
+ </trk>
+</gpx>
+"""
+
+
+def _write_gpx_with_hr(
+    path: Path, *, creator: str, time1: str, time2: str, hr1: int, hr2: int
+) -> Path:
+    """Write a two-point GPX carrying heart rate, at a fixed position."""
+    path.write_text(
+        _GPX_HR_TEMPLATE.format(
+            creator=creator,
+            lat1=52.000,
+            lon1=4.000,
+            lat2=52.001,
+            lon2=4.001,
+            time1=time1,
+            time2=time2,
+            hr1=hr1,
+            hr2=hr2,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _two_overlapping_files(tmp_path: Path) -> list[Path]:
+    """Write two recordings of the same window: a GPS-only track and an HR track."""
+    gps = _write_gpx(
+        tmp_path / "gps.gpx",
+        creator="Garmin Watch",
+        lat1=52.000,
+        lon1=4.000,
+        lat2=52.001,
+        lon2=4.001,
+        time1="2026-06-04T08:00:00Z",
+        time2="2026-06-04T08:00:10Z",
+    )
+    sensor = _write_gpx_with_hr(
+        tmp_path / "hr.gpx",
+        creator="HR Strap",
+        time1="2026-06-04T08:00:00Z",
+        time2="2026-06-04T08:00:10Z",
+        hr1=120,
+        hr2=130,
+    )
+    return [gps, sensor]
+
+
+@pytest.mark.unit
+def test_run_stack_overlapping_files_writes_output_with_the_donor_channel(
+    tmp_path: Path,
+) -> None:
+    gps, sensor = _two_overlapping_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(
+        app,
+        ["run", str(gps), str(sensor), "--out", str(output), "--mode", "stack"],
+    )
+
+    assert result.exit_code == 0
+    assert output.exists()
+    # The GPS-only master borrowed heart rate from the strap.
+    written = read(output)
+    assert any(p.hr is not None for p in written.points())
+
+
+@pytest.mark.unit
+def test_run_stack_on_non_overlapping_files_is_a_mode_conflict(tmp_path: Path) -> None:
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(
+        app, ["run", str(a), str(b), "--out", str(output), "--mode", "stack"]
+    )
+
+    assert result.exit_code == EXIT_MODE_CONFLICT
+
+
+@pytest.mark.unit
+def test_run_auto_stacks_two_fully_overlapping_files(tmp_path: Path) -> None:
+    gps, sensor = _two_overlapping_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    # No --mode: auto sees the identical windows and stacks them.
+    result = runner.invoke(app, ["run", str(gps), str(sensor), "--out", str(output)])
+
+    assert result.exit_code == 0
+    assert output.exists()
+
+
+@pytest.mark.unit
+def test_run_auto_on_partial_overlap_is_a_mode_conflict(tmp_path: Path) -> None:
+    # Each recording spans 100 s and they share 50 s: a ~0.5 overlap ratio that
+    # auto cannot resolve into stack or append.
+    a = _write_gpx(
+        tmp_path / "a.gpx",
+        creator="Device A",
+        lat1=52.000,
+        lon1=4.000,
+        lat2=52.001,
+        lon2=4.001,
+        time1="2026-06-04T08:00:00Z",
+        time2="2026-06-04T08:01:40Z",
+    )
+    b = _write_gpx(
+        tmp_path / "b.gpx",
+        creator="Device B",
+        lat1=52.002,
+        lon1=4.002,
+        lat2=52.003,
+        lon2=4.003,
+        time1="2026-06-04T08:00:50Z",
+        time2="2026-06-04T08:02:30Z",
+    )
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(app, ["run", str(a), str(b), "--out", str(output)])
+
+    assert result.exit_code == EXIT_MODE_CONFLICT

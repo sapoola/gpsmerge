@@ -15,13 +15,14 @@ from pathlib import Path
 from gpsmerge.config import Settings
 from gpsmerge.errors import (
     EXIT_EMPTY_RESULT,
+    EXIT_MODE_CONFLICT,
     EXIT_PARSE,
     EXIT_WRITE,
     GpsmergeError,
     Issue,
 )
 from gpsmerge.geo import cumulative_distance, haversine
-from gpsmerge.merge import append
+from gpsmerge.merge import append, detect_mode, stack
 from gpsmerge.model import Activity, TrackPoint
 from gpsmerge.read import read
 from gpsmerge.validate import validate
@@ -88,7 +89,7 @@ class RunResult:
 
 
 def run(settings: Settings) -> RunResult:
-    """Read, validate, append, and write according to ``settings``.
+    """Read, validate, merge, and write according to ``settings``.
 
     Parameters
     ----------
@@ -110,7 +111,23 @@ def run(settings: Settings) -> RunResult:
     if issues:
         return RunResult(issues=issues)
 
-    merged = append(activities, settings)
+    mode: str = settings.mode
+    if mode == "auto":
+        mode = detect_mode(activities)
+        if mode == "ambiguous":
+            return RunResult(
+                issues=[
+                    Issue(
+                        EXIT_MODE_CONFLICT,
+                        "could not tell whether to stack or append; "
+                        "pass --mode stack or --mode append",
+                    )
+                ]
+            )
+
+    merged = (
+        stack(activities, settings) if mode == "stack" else append(activities, settings)
+    )
     points = list(merged.points())
     if not points:
         return RunResult(

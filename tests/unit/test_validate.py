@@ -68,11 +68,18 @@ def test_activity_without_timestamps_is_a_parse_error(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_overlapping_activities_is_a_mode_conflict(tmp_path: Path) -> None:
+def test_overlapping_activities_conflict_with_append_mode(tmp_path: Path) -> None:
     first = _activity([_point(0), _point(100)], source=A_PATH)
     # Starts at +50 s, before the first one ends at +100 s.
     second = _activity([_point(50), _point(150)], source=B_PATH)
-    issues = validate([first, second], _settings(tmp_path / "out.gpx"))
+    issues = validate([first, second], _settings(tmp_path / "out.gpx", mode="append"))
+    assert any(issue.code == EXIT_MODE_CONFLICT for issue in issues)
+
+
+@pytest.mark.unit
+def test_non_overlapping_activities_conflict_with_stack_mode(tmp_path: Path) -> None:
+    # Stack expects the recordings to overlap; sequential ones are a conflict.
+    issues = validate(_two_sequential(), _settings(tmp_path / "out.gpx", mode="stack"))
     assert any(issue.code == EXIT_MODE_CONFLICT for issue in issues)
 
 

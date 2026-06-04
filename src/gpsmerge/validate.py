@@ -23,29 +23,29 @@ from gpsmerge.errors import (
 )
 from gpsmerge.model import Activity
 
-MIN_INPUTS_TO_APPEND = 2
+MIN_INPUTS_TO_MERGE = 2
 
 
 def validate(activities: list[Activity], settings: Settings) -> list[Issue]:
-    """Return every blocking problem with the requested append, in order found.
+    """Return every blocking problem with the requested merge, in order found.
 
     Parameters
     ----------
     activities : list of Activity
         The parsed input activities, in the order given.
     settings : Settings
-        The merge options, including the output path.
+        The merge options, including the mode and the output path.
 
     Returns
     -------
     list of Issue
         Empty if the merge can proceed; otherwise one entry per problem.
     """
-    if len(activities) < MIN_INPUTS_TO_APPEND:
+    if len(activities) < MIN_INPUTS_TO_MERGE:
         return [
             Issue(
                 EXIT_USAGE,
-                f"append needs at least {MIN_INPUTS_TO_APPEND} files "
+                f"merging needs at least {MIN_INPUTS_TO_MERGE} files "
                 f"(got {len(activities)})",
             )
         ]
@@ -53,7 +53,7 @@ def validate(activities: list[Activity], settings: Settings) -> list[Issue]:
     issues: list[Issue] = []
     issues.extend(_check_timestamps(activities))
     if not issues:  # overlap can only be judged once every file has times
-        issues.extend(_check_no_overlap(activities))
+        issues.extend(_check_mode_vs_overlap(activities, settings.mode))
     if not settings.dry_run:  # a dry run writes nothing, so the output path is moot
         issues.extend(_check_output_path(settings.output, settings.assume_yes))
     return issues
@@ -68,28 +68,46 @@ def _check_timestamps(activities: list[Activity]) -> list[Issue]:
                 Issue(
                     EXIT_PARSE,
                     f"{_name(activity)} has no timestamps, so it cannot be "
-                    f"ordered for appending",
+                    f"merged (append orders by time; stack aligns on it)",
                 )
             )
     return issues
 
 
-def _check_no_overlap(activities: list[Activity]) -> list[Issue]:
-    """Flag inputs that overlap in time -- they are not sequential recordings."""
-    spans = sorted(_require_span(a) for a in activities)
-    for (_, earlier_end), (later_start, _) in zip(spans, spans[1:]):
-        if later_start < earlier_end:
-            return [
-                Issue(
-                    EXIT_MODE_CONFLICT,
-                    "input files overlap in time "
-                    f"(one ends at {earlier_end.isoformat()}, another starts at "
-                    f"{later_start.isoformat()}); append expects sequential "
-                    "recordings. They may be the same ride -- stacking will be "
-                    "available in a later version.",
-                )
-            ]
+def _check_mode_vs_overlap(activities: list[Activity], mode: str) -> list[Issue]:
+    """Flag inputs whose time overlap does not match the chosen mode.
+
+    Append expects sequential (non-overlapping) recordings; stack expects
+    overlapping ones. ``"auto"`` is decided later from the same overlap, so it is
+    not checked here.
+    """
+    overlapping = _overlaps(activities)
+    if mode == "append" and overlapping:
+        return [
+            Issue(
+                EXIT_MODE_CONFLICT,
+                "input files overlap in time; for two recordings of the same ride "
+                "use stack (--mode stack)",
+            )
+        ]
+    if mode == "stack" and not overlapping:
+        return [
+            Issue(
+                EXIT_MODE_CONFLICT,
+                "input files do not overlap in time; for back-to-back recordings "
+                "use append (--mode append)",
+            )
+        ]
     return []
+
+
+def _overlaps(activities: list[Activity]) -> bool:
+    """Return whether any two activities overlap in time (touching is allowed)."""
+    spans = sorted(_require_span(a) for a in activities)
+    return any(
+        later_start < earlier_end
+        for (_, earlier_end), (later_start, _) in zip(spans, spans[1:])
+    )
 
 
 def _check_output_path(output: Path, assume_yes: bool) -> list[Issue]:
