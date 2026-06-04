@@ -39,6 +39,17 @@ TCX_NS = "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"
 TPX_NS = "http://www.garmin.com/xmlschemas/ActivityExtension/v2"
 _XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 
+# Downloadable schema documents (NOT namespaces) for xsi:schemaLocation on the
+# root, matching what real Garmin output carries. Garmin's own files point at a
+# www.garmin.com host that no longer serves the .xsd; we point at the resolvable
+# www8 mirror instead, so a validator following the link actually gets the schema.
+# Both were verified to return HTTP 200. Each is paired with its namespace below.
+_TCX_SCHEMA_URL = "https://www8.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd"
+_TPX_SCHEMA_URL = "https://www8.garmin.com/xmlschemas/ActivityExtensionv2.xsd"
+
+# xsi:schemaLocation is a space-separated list of (namespace, schema-URL) pairs.
+_SCHEMA_LOCATION = f"{TCX_NS} {_TCX_SCHEMA_URL} {TPX_NS} {_TPX_SCHEMA_URL}"
+
 # Map the TCX Sport attribute to our canonical lowercase sport, and back. Any
 # Sport we do not recognise reads as "other"; any sport we cannot name writes as
 # "Other", TCX's catch-all.
@@ -256,6 +267,9 @@ def write_tcx(activity: Activity, path: Path) -> None:
         _qualified(TCX_NS, "TrainingCenterDatabase"),
         nsmap=nsmap,  # type: ignore[arg-type]
     )
+    # Advertise the schemas the way Garmin's own output does, so validators can
+    # find them. The xsi prefix is already declared via nsmap above.
+    root.set(_qualified(_XSI_NS, "schemaLocation"), _SCHEMA_LOCATION)
     activities = etree.SubElement(root, _qualified(TCX_NS, "Activities"))
     activity_el = etree.SubElement(activities, _qualified(TCX_NS, "Activity"))
     activity_el.set("Sport", _sport_to_attribute(activity.sport))

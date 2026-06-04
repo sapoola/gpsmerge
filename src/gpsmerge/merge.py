@@ -205,6 +205,11 @@ def _assign_distance(points: list[TrackPoint], ignore_big_gaps_m: float | None) 
     coffee-stop gap or a GPS glitch -- is not added to the total, so it cannot
     inflate the distance, though the measurement resumes from the new position.
     """
+    # Indoor rides carry no position, so there is nothing to measure from: leave
+    # the recorded distance the points already hold rather than zeroing it.
+    if not any(p.lat is not None and p.lon is not None for p in points):
+        return
+
     running = 0.0
     last_lat: float | None = None
     last_lon: float | None = None
@@ -309,18 +314,26 @@ def _master(activities: list[Activity], settings: Settings) -> Activity:
     """Return the activity that provides position, time, and elevation.
 
     The user picks it with ``position_from``; by default it is the input with the
-    most points carrying a position (the best GPS track).
+    most points carrying a position (the best GPS track). When no input has any
+    position -- an indoor ride recorded on two sensors -- that count ties at zero,
+    so we fall back to the input with the most points, which carries the richer
+    timeline (and, typically, the recorded distance worth keeping).
     """
     if settings.position_from is not None:
         chosen = _activity_by_path(activities, settings.position_from)
         if chosen is not None:
             return chosen
-    return max(activities, key=_position_point_count)
+    return max(activities, key=lambda a: (_position_point_count(a), _point_count(a)))
 
 
 def _position_point_count(activity: Activity) -> int:
     """Return how many of an activity's points carry a latitude and longitude."""
     return sum(1 for p in activity.points() if p.lat is not None and p.lon is not None)
+
+
+def _point_count(activity: Activity) -> int:
+    """Return how many track points an activity has, for breaking master ties."""
+    return sum(1 for _ in activity.points())
 
 
 def _channel_owners(

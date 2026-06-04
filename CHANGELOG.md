@@ -27,3 +27,7 @@ All notable changes to this project are documented here. The format is based on 
 - `gpsmerge examples` and `gpsmerge formats` quick-reference commands, and `docs/wizard.md`.
 - FIT (Garmin/ANT binary) reading: gpsmerge now reads `.fit` files (positions converted from semicircles, timestamps from the FIT epoch, enhanced altitude/speed preferred, device from the file's id message, pauses split at timer-stop events). This completes the v1.0 read contract — **read GPX/TCX/FIT, write GPX/TCX**. Writing FIT remains a later, experimental milestone.
 - Tests that pin the GPX/TCX/Garmin-extension XML namespace identifiers, so an accidental change (they are fixed identifiers, not fetchable URLs) fails loudly.
+- `--timezone` flag and a wizard prompt that show the preview's times in your local zone (display only — the written file stays UTC). An IANA name like `Europe/Amsterdam` auto-resolves summer time; a fixed offset like `+02:00` also works.
+- `xsi:schemaLocation` on written GPX and TCX roots, pointing at the resolvable Garmin/topografix schema documents, matching real Garmin output.
+- Indoor (no-GPS) merges now work: the recorded distance is kept instead of being zeroed by a recompute that had no positions, and when no file has GPS the data-richer file becomes the master (so its timeline and distance are kept) regardless of input order.
+- Writing a position-less (indoor) activity to GPX is refused with guidance to use `--format tcx`, since GPX trackpoints require coordinates and cannot store distance.

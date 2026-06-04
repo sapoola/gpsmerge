@@ -10,6 +10,7 @@ print the issues, or print the preview, and exit.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from gpsmerge.config import Settings
@@ -25,6 +26,7 @@ from gpsmerge.geo import cumulative_distance, haversine
 from gpsmerge.merge import append, detect_mode, stack
 from gpsmerge.model import Activity, TrackPoint
 from gpsmerge.read import read
+from gpsmerge.timeutil import parse_timezone
 from gpsmerge.validate import validate
 from gpsmerge.write import write
 
@@ -53,6 +55,15 @@ class Preview:
         The device the merged file is attributed to.
     warnings : list of str
         Sanity warnings (such as a large unexplained position jump).
+    start_time, end_time : datetime or None
+        The first and last point's timestamps, in timezone-aware UTC.
+    local_start, local_end : datetime or None
+        ``start_time``/``end_time`` shown in the user's chosen timezone, for the
+        preview only. ``None`` when no (valid) timezone was given. The written
+        file's timestamps are unaffected and stay UTC.
+    timezone_label : str or None
+        The raw timezone spec the local times were resolved from, echoed back so
+        the preview can name the zone.
     """
 
     point_count: int
@@ -62,6 +73,11 @@ class Preview:
     channels: list[str]
     device_name: str | None
     warnings: list[str] = field(default_factory=list)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    local_start: datetime | None = None
+    local_end: datetime | None = None
+    timezone_label: str | None = None
 
 
 @dataclass(slots=True)
@@ -132,7 +148,7 @@ def run(settings: Settings) -> RunResult:
             issues=[Issue(EXIT_EMPTY_RESULT, "the merge produced no points")]
         )
 
-    preview = _build_preview(merged)
+    preview = _build_preview(merged, settings.timezone)
 
     if settings.dry_run:
         return RunResult(
@@ -150,9 +166,22 @@ def run(settings: Settings) -> RunResult:
     return RunResult(issues=[], preview=preview, output=settings.output, written=True)
 
 
-def _build_preview(activity: Activity) -> Preview:
-    """Summarise a merged activity, including any sanity warnings."""
+def _build_preview(activity: Activity, timezone: str | None) -> Preview:
+    """Summarise a merged activity, including any sanity warnings.
+
+    Parameters
+    ----------
+    activity : Activity
+        The merged activity to describe.
+    timezone : str or None
+        A timezone spec for local display only (see
+        :func:`gpsmerge.timeutil.parse_timezone`). When given and valid, the
+        preview also carries the start/end shown in that zone; the activity's
+        own timestamps are never touched.
+    """
     points = list(activity.points())
+    start, end = _time_span(points)
+    local_start, local_end = _local_span(start, end, timezone)
     return Preview(
         point_count=len(points),
         moving_seconds=_moving_seconds(activity),
@@ -161,7 +190,40 @@ def _build_preview(activity: Activity) -> Preview:
         channels=_channels(points),
         device_name=activity.device.name,
         warnings=_warnings(points),
+        start_time=start,
+        end_time=end,
+        local_start=local_start,
+        local_end=local_end,
+        timezone_label=timezone if local_start is not None else None,
     )
+
+
+def _time_span(
+    points: list[TrackPoint],
+) -> tuple[datetime | None, datetime | None]:
+    """Return the first and last timestamps (UTC), or ``(None, None)`` if none."""
+    times = [p.time for p in points if p.time is not None]
+    if not times:
+        return None, None
+    return min(times), max(times)
+
+
+def _local_span(
+    start: datetime | None, end: datetime | None, timezone: str | None
+) -> tuple[datetime | None, datetime | None]:
+    """Convert a UTC span into the chosen timezone, for display only.
+
+    Returns ``(None, None)`` when no timezone is given, when there are no times,
+    or when the spec does not resolve -- validation surfaces a bad spec as an
+    error, so here it simply yields no local times rather than raising.
+    """
+    if timezone is None or start is None or end is None:
+        return None, None
+    try:
+        zone = parse_timezone(timezone)
+    except ValueError:
+        return None, None
+    return start.astimezone(zone), end.astimezone(zone)
 
 
 def _moving_seconds(activity: Activity) -> float:

@@ -287,6 +287,58 @@ def test_device_from_overrides_the_master_device() -> None:
 
 
 @pytest.mark.unit
+def test_indoor_stack_keeps_the_masters_recorded_distance() -> None:
+    # Two indoor recordings with no position at all, but each carrying the
+    # distance its device measured (a Stages FIT plus a Garmin Edge TCX, say).
+    master = _activity(
+        [
+            _point(0, None, None, distance=0.0, hr=120),
+            _point(10, None, None, distance=50.0, hr=130),
+            _point(20, None, None, distance=110.0, hr=140),
+        ],
+        device_name="Garmin Edge",
+        source=WATCH_PATH,
+    )
+    donor = _activity(
+        [
+            _point(0, None, None, distance=0.0, power=200, cad=80),
+            _point(10, None, None, distance=999.0, power=210, cad=82),
+            _point(20, None, None, distance=999.0, power=220, cad=84),
+        ],
+        device_name="Stages",
+        source=TRAINER_PATH,
+    )
+    merged = stack([master, donor], _settings(position_from=WATCH_PATH))
+    # Stacking borrowed power/cadence, so it did something useful...
+    assert [p.power for p in merged.points()] == [200, 210, 220]
+    assert [p.cad for p in merged.points()] == [80, 82, 84]
+    # ...and the master's recorded distance survived, not zeroed by recompute.
+    assert [p.distance for p in merged.points()] == [0.0, 50.0, 110.0]
+
+
+@pytest.mark.unit
+def test_stack_recomputes_distance_when_positions_exist() -> None:
+    # With real positions, distance is still recomputed from them, replacing
+    # whatever the points happened to carry.
+    watch = _activity(
+        [
+            _point(0, 52.000, 4.000, distance=7.0, hr=120),
+            _point(10, 52.001, 4.001, distance=7.0, hr=130),
+            _point(20, 52.002, 4.002, distance=7.0, hr=140),
+        ],
+        device_name="Garmin Fenix",
+        source=WATCH_PATH,
+    )
+    trainer = _trainer()
+    merged = stack([watch, trainer], _settings(position_from=WATCH_PATH))
+    distances = [p.distance for p in merged.points()]
+    # The stale 7.0 values are overwritten: distance starts at 0 and grows.
+    assert distances[0] == 0.0
+    assert all(b >= a for a, b in zip(distances, distances[1:]))
+    assert distances[-1] > 0.0
+
+
+@pytest.mark.unit
 def test_stack_does_not_mutate_the_inputs() -> None:
     watch, trainer = _watch(), _trainer()
     watch_positions = [(p.lat, p.lon, p.ele) for p in watch.points()]
@@ -302,3 +354,30 @@ def test_stack_does_not_mutate_the_inputs() -> None:
     assert [(p.lat, p.lon) for p in trainer.points()] == trainer_positions
     # The watch never gained the trainer's borrowed channels.
     assert all(p.power is None for p in watch.points())
+
+
+@pytest.mark.unit
+def test_indoor_master_is_the_input_with_more_points() -> None:
+    # No file has GPS, so the position-count ties at zero; the data-richer file
+    # (more points) becomes master and supplies the timeline and recorded distance.
+    sparse = _activity(
+        [_point(0, None, None, hr=120), _point(20, None, None, hr=130)],
+        device_name="Edge 530",
+        source=WATCH_PATH,
+    )
+    rich = _activity(
+        [
+            _point(0, None, None, power=200, distance=0.0),
+            _point(10, None, None, power=210, distance=50.0),
+            _point(20, None, None, power=220, distance=110.0),
+        ],
+        device_name="Stages",
+        source=TRAINER_PATH,
+    )
+
+    merged = stack([sparse, rich], _settings())
+
+    assert merged.device.name == "Stages"  # the richer file is master
+    assert len(list(merged.points())) == 3  # its timeline
+    # Its recorded distance is kept (there is no GPS to recompute from).
+    assert [p.distance for p in merged.points()] == [0.0, 50.0, 110.0]

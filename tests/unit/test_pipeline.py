@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from gpsmerge.config import Settings
-from gpsmerge.errors import EXIT_MODE_CONFLICT, EXIT_PARSE
+from gpsmerge.errors import EXIT_MODE_CONFLICT, EXIT_PARSE, EXIT_USAGE
 from gpsmerge.pipeline import run
 
 # A tiny GPX with one segment of two points; placeholders are filled per file.
@@ -194,3 +195,61 @@ def test_large_seam_jump_produces_a_warning(tmp_path: Path) -> None:
 
     assert result.preview is not None
     assert result.preview.warnings
+
+
+@pytest.mark.unit
+def test_preview_carries_utc_start_and_end_from_the_points(tmp_path: Path) -> None:
+    inputs = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = run(_settings(inputs, output, dry_run=True))
+
+    preview = result.preview
+    assert preview is not None
+    assert preview.start_time == datetime(2026, 6, 4, 8, 0, 0, tzinfo=UTC)
+    assert preview.end_time == datetime(2026, 6, 4, 8, 5, 10, tzinfo=UTC)
+
+
+@pytest.mark.unit
+def test_timezone_shifts_the_preview_local_times_by_the_zone_offset(
+    tmp_path: Path,
+) -> None:
+    # Europe/Amsterdam is +02:00 in June: 08:00:00 UTC shows as 10:00:00 local,
+    # while the underlying UTC start is unchanged.
+    inputs = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = run(_settings(inputs, output, dry_run=True, timezone="Europe/Amsterdam"))
+
+    preview = result.preview
+    assert preview is not None
+    assert preview.timezone_label == "Europe/Amsterdam"
+    assert preview.local_start is not None
+    assert preview.local_start.utcoffset() == timedelta(hours=2)
+    # Same instant, just rendered in the local zone.
+    assert preview.local_start == preview.start_time
+    assert preview.local_start.hour == 10
+
+
+@pytest.mark.unit
+def test_no_timezone_leaves_local_times_unset(tmp_path: Path) -> None:
+    inputs = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = run(_settings(inputs, output, dry_run=True))
+
+    preview = result.preview
+    assert preview is not None
+    assert preview.local_start is None
+    assert preview.local_end is None
+    assert preview.timezone_label is None
+
+
+@pytest.mark.unit
+def test_unparseable_timezone_is_a_usage_error(tmp_path: Path) -> None:
+    inputs = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = run(_settings(inputs, output, dry_run=True, timezone="Mars/Olympus"))
+
+    assert any(issue.code == EXIT_USAGE for issue in result.issues)

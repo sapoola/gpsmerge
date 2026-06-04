@@ -238,6 +238,102 @@ def test_run_json_output_is_machine_readable(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_run_timezone_prints_a_local_line_with_the_offset(tmp_path: Path) -> None:
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(a),
+            str(b),
+            "--out",
+            str(output),
+            "--dry-run",
+            "--timezone",
+            "Europe/Amsterdam",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "time:" in result.output
+    assert "local:" in result.output
+    # June is summer time in Amsterdam: +02:00.
+    assert "Europe/Amsterdam, UTC+02:00" in result.output
+
+
+@pytest.mark.unit
+def test_run_without_timezone_prints_time_but_no_local_line(tmp_path: Path) -> None:
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(
+        app, ["run", str(a), str(b), "--out", str(output), "--dry-run"]
+    )
+
+    assert result.exit_code == 0
+    assert "time:" in result.output
+    assert "UTC" in result.output
+    assert "local:" not in result.output
+
+
+@pytest.mark.unit
+def test_run_json_includes_utc_and_local_times_with_a_timezone(tmp_path: Path) -> None:
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(a),
+            str(b),
+            "--out",
+            str(output),
+            "--json",
+            "--timezone",
+            "Europe/Amsterdam",
+        ],
+    )
+
+    assert result.exit_code == 0
+    summary = json.loads(result.stdout)
+    assert summary["start_utc"] == "2026-06-04T08:00:00+00:00"
+    assert summary["timezone"] == "Europe/Amsterdam"
+    assert summary["local_start"] == "2026-06-04T10:00:00+02:00"
+    assert summary["local_end"].endswith("+02:00")
+
+
+@pytest.mark.unit
+def test_run_json_omits_local_fields_without_a_timezone(tmp_path: Path) -> None:
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(app, ["run", str(a), str(b), "--out", str(output), "--json"])
+
+    assert result.exit_code == 0
+    summary = json.loads(result.stdout)
+    assert "start_utc" in summary
+    assert "local_start" not in summary
+    assert "timezone" not in summary
+
+
+@pytest.mark.unit
+def test_run_rejects_an_unparseable_timezone(tmp_path: Path) -> None:
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(
+        app,
+        ["run", str(a), str(b), "--out", str(output), "--timezone", "Mars/Olympus"],
+    )
+
+    assert result.exit_code == EXIT_USAGE
+    assert not output.exists()
+
+
+@pytest.mark.unit
 def test_run_device_from_attributes_the_chosen_input(tmp_path: Path) -> None:
     a, b = _two_sequential_files(tmp_path)
     output = tmp_path / "out.gpx"

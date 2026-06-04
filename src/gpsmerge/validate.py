@@ -22,6 +22,7 @@ from gpsmerge.errors import (
     Issue,
 )
 from gpsmerge.model import Activity
+from gpsmerge.timeutil import parse_timezone
 
 MIN_INPUTS_TO_MERGE = 2
 
@@ -54,9 +55,55 @@ def validate(activities: list[Activity], settings: Settings) -> list[Issue]:
     issues.extend(_check_timestamps(activities))
     if not issues:  # overlap can only be judged once every file has times
         issues.extend(_check_mode_vs_overlap(activities, settings.mode))
+    issues.extend(_check_timezone(settings.timezone))
+    issues.extend(_check_gpx_needs_position(activities, settings.output_format))
     if not settings.dry_run:  # a dry run writes nothing, so the output path is moot
         issues.extend(_check_output_path(settings.output, settings.assume_yes))
     return issues
+
+
+def _check_gpx_needs_position(
+    activities: list[Activity], output_format: str
+) -> list[Issue]:
+    """Flag a GPX write of recordings that have no position to store.
+
+    GPX trackpoints require latitude and longitude and have no distance field, so
+    an indoor (no-GPS) ride cannot be written as valid GPX. TCX can carry it.
+    """
+    if output_format != "gpx":
+        return []
+    if any(_has_position(activity) for activity in activities):
+        return []
+    return [
+        Issue(
+            EXIT_USAGE,
+            "these recordings have no GPS position, and GPX cannot store a "
+            "position-less activity (or its distance) -- write TCX instead with "
+            "--format tcx",
+        )
+    ]
+
+
+def _has_position(activity: Activity) -> bool:
+    """Return whether any of an activity's points carries a position."""
+    return any(p.lat is not None and p.lon is not None for p in activity.points())
+
+
+def _check_timezone(timezone: str | None) -> list[Issue]:
+    """Flag a timezone spec the preview cannot resolve to a local time."""
+    if timezone is None:
+        return []
+    try:
+        parse_timezone(timezone)
+    except ValueError:
+        return [
+            Issue(
+                EXIT_USAGE,
+                f"could not understand timezone {timezone!r}; "
+                "use e.g. 'Europe/Amsterdam' or '+02:00'",
+            )
+        ]
+    return []
 
 
 def _check_timestamps(activities: list[Activity]) -> list[Issue]:

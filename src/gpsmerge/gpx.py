@@ -35,6 +35,28 @@ from gpsmerge.model import Activity, Device, Segment, TrackPoint
 TRACKPOINT_EXTENSION_NS = "http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
 POWER_EXTENSION_NS = "http://www.garmin.com/xmlschemas/PowerExtension/v1"
 
+# The GPX 1.1 base namespace, and downloadable schema documents (NOT namespaces)
+# for xsi:schemaLocation on the root, matching what real Garmin output carries.
+# Garmin's own files point at a host that no longer serves the .xsd; we point at
+# the resolvable www8 mirror instead. All three were verified to return HTTP 200.
+_GPX_1_1_NS = "http://www.topografix.com/GPX/1/1"
+_GPX_SCHEMA_URL = "http://www.topografix.com/GPX/1/1/gpx.xsd"
+_TRACKPOINT_EXTENSION_SCHEMA_URL = (
+    "https://www8.garmin.com/xmlschemas/TrackPointExtensionv1.xsd"
+)
+_POWER_EXTENSION_SCHEMA_URL = "https://www8.garmin.com/xmlschemas/PowerExtensionv1.xsd"
+
+# gpxpy renders schema_locations as xsi:schemaLocation: a flat list of alternating
+# (namespace, schema-URL) strings. Order each namespace next to its own schema.
+_SCHEMA_LOCATIONS = [
+    _GPX_1_1_NS,
+    _GPX_SCHEMA_URL,
+    TRACKPOINT_EXTENSION_NS,
+    _TRACKPOINT_EXTENSION_SCHEMA_URL,
+    POWER_EXTENSION_NS,
+    _POWER_EXTENSION_SCHEMA_URL,
+]
+
 # Local names we recognise inside a point's <extensions> block.
 _HR_TAG = "hr"
 _CADENCE_TAG = "cad"
@@ -190,6 +212,9 @@ def write_gpx(activity: Activity, path: Path) -> None:
     # Register the prefixes so the output validates the way Garmin produces it.
     gpx.nsmap["gpxtpx"] = TRACKPOINT_EXTENSION_NS
     gpx.nsmap["gpxpx"] = POWER_EXTENSION_NS
+    # Advertise the schemas the way Garmin's own output does; gpxpy renders this
+    # list as the root's xsi:schemaLocation. A copy keeps the constant immutable.
+    gpx.schema_locations = list(_SCHEMA_LOCATIONS)
 
     track = gpxpy.gpx.GPXTrack()
     track.name = activity.name

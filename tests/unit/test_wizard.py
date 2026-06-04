@@ -197,7 +197,7 @@ def test_append_two_sequential_files_writes_a_merged_gpx(
             "gpx",  # output format
         ],
         path=[str(a), str(b), "", str(output)],  # two files, blank to finish, output
-        text=[""],  # sport: keep the source's
+        text=["", ""],  # timezone (skip), sport (keep source)
         confirm=[
             False,  # ignore big gaps?
             True,  # apply standard clean-up
@@ -218,6 +218,38 @@ def test_append_two_sequential_files_writes_a_merged_gpx(
 
 
 @pytest.mark.unit
+def test_timezone_answer_reaches_the_pipeline_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A non-blank timezone answer must end up in the Settings the wizard runs.
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "merged.gpx"
+
+    seen: list[str | None] = []
+    real_run = wizard.run_pipeline
+
+    def spy(settings: Any) -> Any:
+        seen.append(settings.timezone)
+        return real_run(settings)
+
+    monkeypatch.setattr(wizard, "run_pipeline", spy)
+
+    _ScriptedPrompts(
+        select=["append", "pause", "Garmin Edge 530", "gpx"],
+        path=[str(a), str(b), "", str(output)],
+        text=["Europe/Amsterdam", ""],  # timezone, then sport (skip)
+        confirm=[False, True, True],  # big gaps, clean-up, write it
+    ).install(monkeypatch)
+
+    code = wizard.run()
+
+    assert code == 0
+    # Both the preview run and the final write run carry the timezone.
+    assert seen
+    assert all(spec == "Europe/Amsterdam" for spec in seen)
+
+
+@pytest.mark.unit
 def test_stack_two_overlapping_files_borrows_the_sensor_channel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -233,7 +265,7 @@ def test_stack_two_overlapping_files_borrows_the_sensor_channel(
             "gpx",  # output format
         ],
         path=[str(gps), str(sensor), "", str(output)],
-        text=[""],  # sport: keep the source's
+        text=["", ""],  # timezone (skip), sport (keep source)
         confirm=[
             True,  # apply standard clean-up
             True,  # write it?
@@ -267,7 +299,7 @@ def test_contradicting_mode_choice_is_recovered_not_crashed(
             "gpx",  # format
         ],
         path=[str(a), str(b), "", str(output)],
-        text=[""],  # sport: keep the source's
+        text=["", ""],  # timezone (skip), sport (keep source)
         confirm=[
             False,  # ignore big gaps?
             True,  # clean-up
@@ -298,7 +330,7 @@ def test_existing_output_path_overwrite_is_honoured(
             "overwrite",  # the existing-file choice
         ],
         path=[str(a), str(b), "", str(output)],
-        text=[""],  # sport: keep the source's
+        text=["", ""],  # timezone (skip), sport (keep source)
         confirm=[
             False,  # ignore big gaps?
             True,  # clean-up
@@ -326,7 +358,7 @@ def test_fewer_than_two_files_then_blank_keeps_prompting(
     _ScriptedPrompts(
         select=["append", "pause", "Garmin Edge 530", "gpx"],
         path=["", str(a), str(b), "", str(output)],  # leading blank ignored
-        text=[""],  # sport
+        text=["", ""],  # timezone (skip), sport (skip)
         confirm=[False, True, True],
     ).install(monkeypatch)
 
@@ -348,7 +380,7 @@ def test_nonexistent_then_valid_path_is_reprompted(
         select=["append", "pause", "Garmin Edge 530", "gpx"],
         # First path does not exist: rejected and re-prompted.
         path=[str(missing), str(a), str(b), "", str(output)],
-        text=[""],  # sport
+        text=["", ""],  # timezone (skip), sport (skip)
         confirm=[False, True, True],
     ).install(monkeypatch)
 
@@ -368,7 +400,7 @@ def test_declining_to_write_returns_zero_without_a_file(
     _ScriptedPrompts(
         select=["append", "pause", "Garmin Edge 530", "gpx"],
         path=[str(a), str(b), "", str(output)],
-        text=[""],  # sport
+        text=["", ""],  # timezone (skip), sport (skip)
         confirm=[
             False,  # ignore big gaps?
             True,  # clean-up

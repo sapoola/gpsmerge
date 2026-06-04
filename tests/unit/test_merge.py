@@ -191,6 +191,30 @@ def test_shift_accumulates_across_three_files() -> None:
 
 
 @pytest.mark.unit
+def test_append_keeps_recorded_distance_when_there_is_no_gps() -> None:
+    # Indoor recordings carry no position; appending must keep their recorded
+    # distance rather than recomputing it from (absent) positions to zero.
+    a = _activity(
+        [
+            TrackPoint(time=_BASE, distance=0.0, power=100),
+            TrackPoint(time=_BASE + timedelta(seconds=10), distance=50.0, power=110),
+        ],
+        device_name="A",
+        source=A_PATH,
+    )
+    b = _activity(
+        [
+            TrackPoint(time=_BASE + timedelta(seconds=300), distance=0.0, power=120),
+            TrackPoint(time=_BASE + timedelta(seconds=310), distance=70.0, power=130),
+        ],
+        device_name="B",
+        source=B_PATH,
+    )
+    merged = append([a, b], _settings(recompute_distance=True))
+    assert [p.distance for p in merged.points()] == [0.0, 50.0, 0.0, 70.0]
+
+
+@pytest.mark.unit
 def test_append_does_not_mutate_the_inputs() -> None:
     activities = _two_sequential()
     original_times = [p.time for p in activities[0].points()]

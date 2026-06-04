@@ -65,6 +65,11 @@ class Settings(BaseModel):
         Do everything except write the file; show the preview only.
     json_output : bool
         Print a machine-readable summary instead of the human preview.
+    timezone : str or None
+        The raw timezone spec for the preview only (an IANA name such as
+        ``"Europe/Amsterdam"`` or a fixed offset such as ``"+02:00"``). It makes
+        the preview and JSON show local times so the user can sanity-check; the
+        merged file's timestamps always stay UTC.
     """
 
     inputs: list[Path]
@@ -86,3 +91,4 @@ class Settings(BaseModel):
     assume_yes: bool = False
     dry_run: bool = False
     json_output: bool = False
+    timezone: str | None = None

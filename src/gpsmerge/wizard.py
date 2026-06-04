@@ -32,6 +32,7 @@ from gpsmerge.model import Activity
 from gpsmerge.pipeline import RunResult
 from gpsmerge.pipeline import run as run_pipeline
 from gpsmerge.read import read
+from gpsmerge.timeutil import local_range, utc_range, zone_label
 
 # Extensions the wizard will accept as input files.
 SUPPORTED_SUFFIXES = (".gpx", ".tcx")
@@ -83,6 +84,7 @@ def run() -> int:
 
         device_from = _ask_device(paths, activities)
         output_format = _ask_output_format()
+        timezone = _ask_timezone()
         sport = _ask_sport()
         clean_up = _ask_clean_up()
         output, assume_yes = _ask_output_path(paths, output_format)
@@ -109,6 +111,7 @@ def run() -> int:
             "recompute_distance": clean_up,
             "device_from": device_from,
             "sport": sport,
+            "timezone": timezone,
             "assume_yes": assume_yes,
             "dry_run": True,  # preview first; the real write happens on confirm
         }
@@ -523,6 +526,29 @@ def _ask_output_format() -> str:
     return str(answer)
 
 
+def _ask_timezone() -> str | None:
+    """Ask which timezone to show the preview's times in, defaulting to UTC only.
+
+    Display-only: it changes the preview, never the written file's timestamps. A
+    blank answer keeps the preview in UTC.
+
+    Returns
+    -------
+    str or None
+        The raw timezone spec, or ``None`` when left blank.
+    """
+    answer = str(
+        _ask(
+            questionary.text(
+                "Timezone these were recorded in? "
+                "(e.g. Europe/Amsterdam or +02:00, Enter to skip)",
+                default="",
+            )
+        )
+    ).strip()
+    return answer or None
+
+
 def _ask_sport() -> str | None:
     """Ask whether to override the sport, defaulting to keeping the source's."""
     answer = str(
@@ -665,6 +691,14 @@ def _show_preview(result: RunResult) -> None:
     table.add_row("distance", f"{preview.distance_m / 1000:.2f} km")
     table.add_row("channels", ", ".join(preview.channels) or "none")
     table.add_row("device", preview.device_name or "unknown")
+    if preview.start_time is not None and preview.end_time is not None:
+        table.add_row("time", utc_range(preview.start_time, preview.end_time))
+    if preview.local_start is not None and preview.local_end is not None:
+        zone = zone_label(preview.timezone_label, preview.local_start)
+        table.add_row(
+            "local",
+            f"{local_range(preview.local_start, preview.local_end)}  ({zone})",
+        )
     _console.print(Panel(table, title="Preview", expand=False))
 
     for warning in preview.warnings:

@@ -19,9 +19,14 @@ import pytest
 
 from gpsmerge import gpx, tcx
 from gpsmerge.model import Activity, Device, Segment, TrackPoint
+from gpsmerge.read import read
 
 # The canonical namespace strings, verified against Garmin's published schemas.
 GPX_1_1_NS = "http://www.topografix.com/GPX/1/1"
+
+# The resolvable (HTTP 200) schema documents we advertise via xsi:schemaLocation.
+GPX_SCHEMA_URL = "http://www.topografix.com/GPX/1/1/gpx.xsd"
+TCX_SCHEMA_URL = "https://www8.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd"
 
 _PINNED = {
     "gpx.TRACKPOINT_EXTENSION_NS": (
@@ -90,3 +95,41 @@ def test_written_tcx_uses_the_canonical_namespaces(tmp_path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     assert tcx.TCX_NS in text
     assert tcx.TPX_NS in text  # power lives in the TPX extension
+
+
+@pytest.mark.unit
+def test_written_gpx_advertises_resolvable_schema_locations(tmp_path: Path) -> None:
+    path = tmp_path / "out.gpx"
+    gpx.write_gpx(_activity_with_sensors(), path)
+    text = path.read_text(encoding="utf-8")
+    assert "schemaLocation" in text  # xsi:schemaLocation on the root
+    assert GPX_SCHEMA_URL in text  # GPX base schema, verified HTTP 200
+
+
+@pytest.mark.unit
+def test_written_tcx_advertises_resolvable_schema_locations(tmp_path: Path) -> None:
+    path = tmp_path / "out.tcx"
+    tcx.write_tcx(_activity_with_sensors(), path)
+    text = path.read_text(encoding="utf-8")
+    assert "schemaLocation" in text  # xsi:schemaLocation on the root
+    assert TCX_SCHEMA_URL in text  # TCX schema on the resolvable www8 host
+
+
+@pytest.mark.unit
+def test_written_gpx_still_round_trips_with_schema_locations(tmp_path: Path) -> None:
+    # Adding xsi:schemaLocation must not break parsing: channels survive the trip.
+    path = tmp_path / "out.gpx"
+    gpx.write_gpx(_activity_with_sensors(), path)
+    point = next(read(path).points())
+    assert point.hr == 140
+    assert point.power == 220
+
+
+@pytest.mark.unit
+def test_written_tcx_still_round_trips_with_schema_locations(tmp_path: Path) -> None:
+    # Adding xsi:schemaLocation must not break parsing: channels survive the trip.
+    path = tmp_path / "out.tcx"
+    tcx.write_tcx(_activity_with_sensors(), path)
+    point = next(read(path).points())
+    assert point.hr == 140
+    assert point.power == 220

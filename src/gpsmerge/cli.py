@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import typer
@@ -23,6 +24,7 @@ from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
 from gpsmerge.pipeline import RunResult
 from gpsmerge.pipeline import run as run_pipeline
+from gpsmerge.timeutil import local_range, utc_range, zone_label
 
 app = typer.Typer(
     name="gpsmerge",
@@ -130,6 +132,13 @@ def run(
     sport: str | None = typer.Option(
         None, "--sport", help="Override the sport of the merged activity."
     ),
+    timezone: str | None = typer.Option(
+        None,
+        "--timezone",
+        help="Show the preview's times in this zone (display only; the file "
+        "stays UTC). An IANA name like 'Europe/Amsterdam' (auto-handles summer "
+        "time) or a fixed offset like '+02:00'.",
+    ),
     assume_yes: bool = typer.Option(
         False, "--yes", "-y", help="Overwrite the output without asking."
     ),
@@ -160,6 +169,7 @@ def run(
                 "recompute_distance": recompute_distance,
                 "device_from": device_from,
                 "sport": sport,
+                "timezone": timezone,
                 "assume_yes": assume_yes,
                 "dry_run": dry_run,
                 "json_output": json_output,
@@ -234,7 +244,7 @@ def _summary(result: RunResult) -> dict[str, object]:
     """Build the machine-readable summary for a successful run."""
     preview = result.preview
     assert preview is not None  # success always carries a preview
-    return {
+    summary: dict[str, object] = {
         "output": str(result.output) if result.output is not None else None,
         "written": result.written,
         "points": preview.point_count,
@@ -244,7 +254,19 @@ def _summary(result: RunResult) -> dict[str, object]:
         "channels": preview.channels,
         "device": preview.device_name,
         "warnings": preview.warnings,
+        "start_utc": _iso_or_none(preview.start_time),
+        "end_utc": _iso_or_none(preview.end_time),
     }
+    if preview.local_start is not None:
+        summary["local_start"] = _iso_or_none(preview.local_start)
+        summary["local_end"] = _iso_or_none(preview.local_end)
+        summary["timezone"] = preview.timezone_label
+    return summary
+
+
+def _iso_or_none(value: datetime | None) -> str | None:
+    """Return a datetime's ISO-8601 string, or ``None`` if there is none."""
+    return value.isoformat() if value is not None else None
 
 
 def _print_preview(result: RunResult) -> None:
@@ -261,6 +283,14 @@ def _print_preview(result: RunResult) -> None:
     typer.echo(f"  distance: {preview.distance_m / 1000:.2f} km")
     typer.echo(f"  channels: {', '.join(preview.channels) or 'none'}")
     typer.echo(f"  device:   {preview.device_name or 'unknown'}")
+    if preview.start_time is not None and preview.end_time is not None:
+        typer.echo(f"  time:     {utc_range(preview.start_time, preview.end_time)}")
+    if preview.local_start is not None and preview.local_end is not None:
+        typer.echo(
+            f"  local:    "
+            f"{local_range(preview.local_start, preview.local_end)}  "
+            f"({zone_label(preview.timezone_label, preview.local_start)})"
+        )
     for warning in preview.warnings:
         typer.secho(f"  ! {warning}", fg=typer.colors.YELLOW)
 

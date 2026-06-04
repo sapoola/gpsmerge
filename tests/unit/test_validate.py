@@ -120,3 +120,49 @@ def test_dry_run_skips_output_path_checks(tmp_path: Path) -> None:
     output.write_text("already here", encoding="utf-8")
     issues = validate(_two_sequential(), _settings(output, dry_run=True))
     assert issues == []
+
+
+@pytest.mark.unit
+def test_unparseable_timezone_is_a_usage_error(tmp_path: Path) -> None:
+    issues = validate(
+        _two_sequential(), _settings(tmp_path / "out.gpx", timezone="Mars/Olympus")
+    )
+    assert any(issue.code == EXIT_USAGE for issue in issues)
+
+
+def _indoor_pair() -> list[Activity]:
+    """Two sequential recordings that carry no position (an indoor ride)."""
+    first = Activity(
+        device=Device(name="A"),
+        segments=[Segment(points=[TrackPoint(time=_BASE), _point(10, time=True)])],
+        source_path="a.fit",
+    )
+    second = Activity(
+        device=Device(name="B"),
+        segments=[Segment(points=[_point(300, time=True), _point(310, time=True)])],
+        source_path="b.fit",
+    )
+    # _point gives a position; strip it so these are genuinely position-less.
+    for activity in (first, second):
+        for point in activity.points():
+            point.lat = None
+            point.lon = None
+    return [first, second]
+
+
+@pytest.mark.unit
+def test_gpx_output_of_position_less_recordings_is_a_usage_error(
+    tmp_path: Path,
+) -> None:
+    issues = validate(
+        _indoor_pair(), _settings(tmp_path / "out.gpx", output_format="gpx")
+    )
+    assert any(issue.code == EXIT_USAGE for issue in issues)
+
+
+@pytest.mark.unit
+def test_tcx_output_of_position_less_recordings_is_allowed(tmp_path: Path) -> None:
+    issues = validate(
+        _indoor_pair(), _settings(tmp_path / "out.tcx", output_format="tcx")
+    )
+    assert issues == []
