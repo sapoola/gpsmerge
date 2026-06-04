@@ -5,9 +5,21 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: CI only reads the repo. No write scopes are needed here;
+# publishing lives in release.yml with its own narrowly-scoped permissions.
+permissions:
+  contents: read
+
+# Cancel an in-progress run when a newer commit is pushed to the same ref,
+# so superseded PR/branch runs don't queue up and waste minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -38,5 +50,39 @@ jobs:
       - name: mypy
         run: poetry run mypy src
 
+      # Run the fast suite on every leg, but only gate coverage on one leg so
+      # the default local run stays quick and a single version owns the report.
       - name: pytest
+        if: matrix.python-version != '3.12'
         run: poetry run pytest
+
+      - name: pytest (with coverage)
+        if: matrix.python-version == '3.12'
+        run: >-
+          poetry run pytest
+          --cov=gpsmerge
+          --cov-branch
+          --cov-report=term-missing
+          --cov-fail-under=90
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: poetry
+
+      - name: Build sdist and wheel
+        run: poetry build
+
+      - name: Check distribution metadata
+        run: |
+          pip install twine
+          twine check dist/*

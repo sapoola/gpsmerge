@@ -10,19 +10,35 @@ authors = [
     { name = "Sam Apoola", email = "177226958+sapoola@users.noreply.github.com" },
 ]
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.11"
+keywords = ["gps", "gpx", "tcx", "fit", "strava", "garmin", "merge", "cycling"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Utilities",
+]
 dependencies = [
     "typer>=0.12.0",
     "questionary>=2.1.0",
     "rich>=13.0.0",
     "pydantic>=2.6.0",
     "gpxpy>=1.6.0",
-    "lxml>=5.0.0",
+    "lxml>=6.1.0",
     "fitdecode>=0.11.0",
-    "tomli-w (>=1.0)",
-    "platformdirs (>=4.0)",
+    "tomli-w>=1.0",
+    "platformdirs>=4.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/sapoola/gpsmerge"
+Repository = "https://github.com/sapoola/gpsmerge"
+Changelog = "https://github.com/sapoola/gpsmerge/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 test = [
@@ -79,5 +95,6 @@ markers = [
 ]
 
 [tool.coverage.run]
+branch = true
 source = ["src/gpsmerge"]
 omit = ["*/tests/*", "*/test_*", "*/__pycache__/*"]

@@ -36,3 +36,14 @@ All notable changes to this project are documented here. The format is based on 
 - Post-merge transforms: `--shift` adds a signed duration to every timestamp (fix a wrong device clock); `--trim-start`/`--trim-end` crop to a sub-range and re-base distance to start at zero; `--smooth-elevation <window>` runs a centred moving average over noisy GPS elevation; `--insert-stopped-time` turns long non-moving gaps into pauses so they stop counting as moving time.
 - A polished guided wizard: an ASCII banner on launch, numbered section steps with friendly plain-language prompts, an encouraging auto-detect summary, and a green "Done" panel summarising the merged file with a tip to save the run as a profile. The banner appears only in the interactive wizard, never when piped or in CI.
 - `--out` is now optional for `--dry-run` (a preview writes nothing, so it no longer needs an output path); a real write without `--out` is a clear usage error.
+
+<!--
+Release reference links. Nothing is released yet, so [Unreleased] points at the
+full commit history. When the first version is tagged, change [Unreleased] to a
+compare link against that tag and add a line for the release, for example:
+
+[Unreleased]: https://github.com/sapoola/gpsmerge/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/sapoola/gpsmerge/releases/tag/v0.1.0
+-->
+
+[Unreleased]: https://github.com/sapoola/gpsmerge/commits/main
