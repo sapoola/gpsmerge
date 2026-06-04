@@ -181,3 +181,28 @@ class Activity:
         """
         for segment in self.segments:
             yield from segment.points
+
+    def channel_series(self, channel: str) -> list[tuple[float, float]]:
+        """Return sorted ``(time-seconds, value)`` samples for one channel.
+
+        Points with no time or no value for the channel are skipped. The merge and
+        the clock-skew alignment both use this to resample a channel onto another
+        activity's timeline.
+
+        Parameters
+        ----------
+        channel : str
+            A channel attribute name, e.g. ``"hr"`` or ``"power"``.
+
+        Returns
+        -------
+        list of (float, float)
+            ``(POSIX seconds, value)`` pairs, sorted by time.
+        """
+        samples = [
+            (point.time.timestamp(), float(getattr(point, channel)))
+            for point in self.points()
+            if point.time is not None and getattr(point, channel) is not None
+        ]
+        samples.sort()
+        return samples

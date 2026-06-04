@@ -568,6 +568,68 @@ def test_run_stack_overlapping_files_writes_output_with_the_donor_channel(
 
 
 @pytest.mark.unit
+def test_run_align_clocks_flag_reaches_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import gpsmerge.cli as cli
+
+    gps, sensor = _two_overlapping_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    seen: list[bool] = []
+    real_run = cli.run_pipeline
+
+    def spy(settings: object) -> object:
+        seen.append(settings.clock_align)  # type: ignore[attr-defined]
+        return real_run(settings)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cli, "run_pipeline", spy)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(gps),
+            str(sensor),
+            "--out",
+            str(output),
+            "--mode",
+            "stack",
+            "--align-clocks",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert seen == [True]
+
+
+@pytest.mark.unit
+def test_run_align_clocks_defaults_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import gpsmerge.cli as cli
+
+    gps, sensor = _two_overlapping_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    seen: list[bool] = []
+    real_run = cli.run_pipeline
+
+    def spy(settings: object) -> object:
+        seen.append(settings.clock_align)  # type: ignore[attr-defined]
+        return real_run(settings)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cli, "run_pipeline", spy)
+
+    result = runner.invoke(
+        app, ["run", str(gps), str(sensor), "--out", str(output), "--mode", "stack"]
+    )
+
+    assert result.exit_code == 0
+    assert seen == [False]
+
+
+@pytest.mark.unit
 def test_run_stack_on_non_overlapping_files_is_a_mode_conflict(tmp_path: Path) -> None:
     a, b = _two_sequential_files(tmp_path)
     output = tmp_path / "out.gpx"

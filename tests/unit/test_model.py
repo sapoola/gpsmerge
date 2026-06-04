@@ -45,6 +45,29 @@ def test_two_activities_do_not_share_a_device_instance() -> None:
 
 
 @pytest.mark.unit
+def test_channel_series_returns_sorted_time_value_pairs() -> None:
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    later = TrackPoint(time=datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC), hr=150)
+    earlier = TrackPoint(time=base, hr=140)
+    activity = Activity(segments=[Segment(points=[later, earlier])])
+
+    assert activity.channel_series("hr") == [
+        (base.timestamp(), 140.0),
+        (later.time.timestamp(), 150.0),  # type: ignore[union-attr]
+    ]
+
+
+@pytest.mark.unit
+def test_channel_series_skips_points_missing_time_or_value() -> None:
+    timed = TrackPoint(time=datetime(2026, 1, 1, tzinfo=UTC), power=200)
+    no_value = TrackPoint(time=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC))
+    no_time = TrackPoint(time=None, power=300)
+    activity = Activity(segments=[Segment(points=[timed, no_value, no_time])])
+
+    assert activity.channel_series("power") == [(timed.time.timestamp(), 200.0)]  # type: ignore[union-attr]
+
+
+@pytest.mark.unit
 def test_activity_has_no_laps_by_default() -> None:
     assert Activity().laps == []
 

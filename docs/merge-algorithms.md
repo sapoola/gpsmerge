@@ -150,6 +150,20 @@ Naming a source with `--hr-from` / `--cadence-from` / `--power-from` / `--temp-f
 
 Heart rate, cadence, and power are whole-number channels — you do not have a heart rate of 146.3. Interpolation produces a fractional value, so after resampling, these three are **rounded back to the nearest integer**. Temperature and speed keep their fractional precision.
 
+### Clock-skew alignment
+
+Stacking borrows a donor's channels onto the master's timeline *by timestamp*. That is only sound if the two devices agree on what time it is — but they rarely do. Two head units started a minute apart, a watch that never re-synced its clock, a trainer whose time drifted: a few seconds of disagreement is normal, and it smears every borrowed channel. If the donor's clock runs five seconds fast, its power for "now" lands on the master point five seconds in the future, so power trails the effort and heart rate leads it. The route is the master's and stays correct; it is the borrowed numbers that arrive at the wrong instant.
+
+`--align-clocks` (the `clock_align` setting, off by default) corrects this before any channel is borrowed. For each donor it measures the donor's clock offset relative to the master and, if there is one, reads that donor from a time-shifted **copy** so its readings land on the master's clock. The master is never moved — its time, position, and elevation are still copied through verbatim — and the inputs are never mutated; only a copy of the donor is shifted. The detection lives in `src/gpsmerge/alignment.py`.
+
+The offset is found by **cross-correlation** on a channel both devices recorded. gpsmerge picks one shared channel that actually varies — in priority order speed, power, heart rate, cadence, then elevation as a last resort — because a flat, constant signal carries no shape to line up. It lays both series on a common one-per-second grid over the time they overlap, then slides the donor against the master one second at a time across a window of ±30 seconds, and at each candidate shift measures how well the two shapes match (a Pearson correlation). The shift that matches best is the donor's offset.
+
+Two guards keep it from aligning on a coincidence. If no shared channel varies on both sides — the devices logged different sensors, or the one they share never moved — there is nothing to correlate and no shift is applied. And the best match has to clear a confidence bar (a correlation of 0.5); if even the best shift is a poor fit, gpsmerge declines to move the donor rather than shift on a guess. In both cases the offset is zero and stacking proceeds exactly as it would with the option off, so turning `--align-clocks` on can only help a genuinely skewed donor, never scramble a clean one.
+
+The sign convention is worth stating once, because it is easy to get backwards. The detector returns *the number of seconds to add to the donor's timestamps*. A donor clock that runs **fast** stamps each reading later than it happened, so its series must be pulled **earlier** to match the master — a **negative** offset. A **slow** donor needs a **positive** one. Either way, applying the returned offset to the donor's times is what lines its shape up with the master's.
+
+This only matters when stacking, and only when the two clocks actually differ. For a single device, or two devices that were synced, there is nothing to align and the option is a no-op. Leave it off by default; reach for it when a stacked file shows a sensor that looks consistently shifted from the route.
+
 ## Distance and device on a stacked file
 
 **Distance is recomputed from the master's positions**, exactly the way append recomputes it: walk the output points in order, add the straight-line (haversine) step between each consecutive pair, write the running cumulative total onto each point, and (if `--ignore-gaps-over-meters` is set) skip any single oversized step so a glitch cannot inflate the total. Because the positions are the master's verbatim track, the distance is the distance of that real track — never interpolated, never reconstructed from a donor.

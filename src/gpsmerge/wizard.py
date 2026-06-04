@@ -80,6 +80,7 @@ def run() -> int:
         channel_sources = (
             _ask_stack_sources(paths, activities) if mode == "stack" else {}
         )
+        clock_align = _ask_clock_align() if mode == "stack" else False
         gap_policy, ignore_big_gaps = (
             _ask_append_options() if mode == "append" else ("pause", False)
         )
@@ -105,6 +106,7 @@ def run() -> int:
             "output": output,
             "output_format": output_format,
             "mode": mode,
+            "clock_align": clock_align,
             "position_from": channel_sources.get("position_from"),
             "hr_from": channel_sources.get("hr_from"),
             "cadence_from": channel_sources.get("cadence_from"),
@@ -449,6 +451,26 @@ def _ask_channel_source(label: str, owners: list[Path]) -> Path:
         )
     )
     return Path(str(answer))
+
+
+def _ask_clock_align() -> bool:
+    """Ask whether to correct a donor device's clock skew before stacking.
+
+    Returns
+    -------
+    bool
+        ``True`` to detect and correct each donor's clock offset before borrowing
+        its channels; ``False`` (the default) to stack on the recorded times.
+    """
+    return bool(
+        _ask(
+            questionary.confirm(
+                "Were the devices' clocks slightly out of sync? Align them? "
+                "(recommended if a sensor looks shifted)",
+                default=False,
+            )
+        )
+    )
 
 
 def _show_coverage(paths: list[Path], activities: list[Activity]) -> None:

@@ -145,6 +145,13 @@ def run(
         "longer than this many seconds.",
         rich_help_panel="Stacking",
     ),
+    align_clocks: bool = typer.Option(
+        False,
+        "--align-clocks/--no-align-clocks",
+        help="When stacking, align a second device whose clock is off by a few "
+        "seconds.",
+        rich_help_panel="Stacking",
+    ),
     position_from: Path | None = typer.Option(
         None,
         "--position-from",
@@ -331,6 +338,7 @@ def run(
                 "output_format": resolved["output_format"],
                 "mode": resolved["mode"],
                 "max_gap_s": resolved["max_gap_seconds"],
+                "clock_align": align_clocks,
                 "position_from": position_from,
                 "hr_from": hr_from,
                 "cadence_from": cadence_from,

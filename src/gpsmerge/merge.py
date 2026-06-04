@@ -18,6 +18,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from gpsmerge import alignment
 from gpsmerge.config import Settings
 from gpsmerge.geo import haversine
 from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
@@ -283,6 +284,11 @@ def stack(activities: list[Activity], settings: Settings) -> Activity:
     and when more than one source can supply a channel a later one fills the gaps
     the first leaves.
 
+    With ``clock_align`` set, each donor's clock offset relative to the master is
+    detected first (see :mod:`gpsmerge.alignment`) and its readings are shifted
+    onto the master's clock before being borrowed, so a device whose clock is a
+    few seconds off no longer smears its channel. The master is never shifted.
+
     Parameters
     ----------
     activities : list of Activity
@@ -297,9 +303,10 @@ def stack(activities: list[Activity], settings: Settings) -> Activity:
         The master track enriched with the borrowed sensor channels.
     """
     master = _master(activities, settings)
+    aligned = _align_donors(activities, master, settings)
     donor_series = {
         channel: [
-            _series(owner, channel)
+            aligned[id(owner)].channel_series(channel)
             for owner in _channel_owners(activities, settings, channel)
         ]
         for channel in SCALAR_DONOR_CHANNELS
@@ -325,6 +332,47 @@ def stack(activities: list[Activity], settings: Settings) -> Activity:
         laps=[replace(lap) for lap in master.laps],
         time_created=master.time_created,
     )
+
+
+def _align_donors(
+    activities: list[Activity], master: Activity, settings: Settings
+) -> dict[int, Activity]:
+    """Map each activity to the version stacking should read its channels from.
+
+    The master always maps to itself: its timeline is the reference and is never
+    moved. With ``clock_align`` off every donor also maps to itself, so stacking
+    reads the donors exactly as recorded -- behaviour identical to before. With it
+    on, each donor's clock offset relative to the master is detected and, when
+    non-zero, the donor maps to a time-shifted *copy* (the inputs are never
+    mutated) so its readings land on the master's clock before being borrowed.
+
+    The mapping is keyed by ``id`` so the series builder can look up the right
+    version per owner without changing how owners are chosen.
+    """
+    versions = {id(a): a for a in activities}
+    if not settings.clock_align:
+        return versions
+    for donor in activities:
+        if donor is master:
+            continue
+        offset = alignment.detect_clock_offset(master, donor)
+        if offset != 0.0:
+            versions[id(donor)] = _shift_activity(donor, offset)
+    return versions
+
+
+def _shift_activity(activity: Activity, offset: float) -> Activity:
+    """Return a copy of ``activity`` with every point's time moved by ``offset`` s.
+
+    Only the points are copied and re-timed (via the same per-point ``_shift``
+    stacking trusts elsewhere); the rest of the activity is reused, because
+    stacking reads only the shifted points' channels from the result.
+    """
+    segments = [
+        Segment(points=[_shift(p, offset) for p in segment.points])
+        for segment in activity.segments
+    ]
+    return replace(activity, segments=segments)
 
 
 def _master(activities: list[Activity], settings: Settings) -> Activity:
@@ -373,17 +421,6 @@ def _channel_owners(
 def _has_channel(activity: Activity, channel: str) -> bool:
     """Return whether an activity records any value for ``channel``."""
     return any(getattr(p, channel) is not None for p in activity.points())
-
-
-def _series(activity: Activity, channel: str) -> list[tuple[float, float]]:
-    """Return an activity's (time-seconds, value) samples for one channel, sorted."""
-    samples = [
-        (p.time.timestamp(), float(getattr(p, channel)))
-        for p in activity.points()
-        if p.time is not None and getattr(p, channel) is not None
-    ]
-    samples.sort()
-    return samples
 
 
 def _fill_channels(

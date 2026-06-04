@@ -35,6 +35,9 @@ class Settings(BaseModel):
     max_gap_s : float
         When stacking, do not interpolate a borrowed channel across a gap in its
         source longer than this many seconds (leave it blank instead).
+    clock_align : bool
+        When stacking, detect and correct a donor device's clock offset before
+        borrowing its channels.
     position_from : Path or None
         When stacking, which input provides position (and elevation). Defaults
         to the input with the best GPS track.
@@ -95,6 +98,7 @@ class Settings(BaseModel):
     output_format: Literal["gpx", "tcx"] = "gpx"
     mode: Literal["auto", "append", "stack"] = "auto"
     max_gap_s: float = 10.0
+    clock_align: bool = False
     position_from: Path | None = None
     hr_from: Path | None = None
     cadence_from: Path | None = None

@@ -267,6 +267,7 @@ def test_stack_two_overlapping_files_borrows_the_sensor_channel(
         path=[str(gps), str(sensor), "", str(output)],
         text=["", "", ""],  # timezone (skip), sport (keep source), profile (skip)
         confirm=[
+            False,  # clocks out of sync? (decline alignment)
             True,  # apply standard clean-up
             True,  # write it?
         ],
@@ -279,6 +280,42 @@ def test_stack_two_overlapping_files_borrows_the_sensor_channel(
     written = read(output)
     # The GPS-only master borrowed heart rate from the strap.
     assert any(p.hr is not None for p in written.points())
+
+
+@pytest.mark.unit
+def test_stack_clock_align_answer_reaches_the_pipeline_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Saying yes to "were the clocks out of sync?" must set clock_align on the
+    # Settings the wizard runs, on both the preview and the final write.
+    gps, sensor = _two_overlapping_files(tmp_path)
+    output = tmp_path / "stacked.gpx"
+
+    seen: list[bool] = []
+    real_run = wizard.run_pipeline
+
+    def spy(settings: Any) -> Any:
+        seen.append(settings.clock_align)
+        return real_run(settings)
+
+    monkeypatch.setattr(wizard, "run_pipeline", spy)
+
+    _ScriptedPrompts(
+        select=["stack", str(gps), "Garmin Watch", "gpx"],
+        path=[str(gps), str(sensor), "", str(output)],
+        text=["", "", ""],  # timezone (skip), sport (keep source), profile (skip)
+        confirm=[
+            True,  # clocks out of sync? -> align them
+            True,  # clean-up
+            True,  # write it?
+        ],
+    ).install(monkeypatch)
+
+    code = wizard.run()
+
+    assert code == 0
+    assert seen
+    assert all(flag is True for flag in seen)
 
 
 @pytest.mark.unit

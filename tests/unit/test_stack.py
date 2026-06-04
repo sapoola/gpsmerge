@@ -8,6 +8,7 @@ build tiny in-code activities and assert that behaviour, not the internals.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -448,3 +449,144 @@ def test_large_stack_completes_quickly() -> None:
 
     assert len(list(merged.points())) == n
     assert elapsed < 1.0, f"20k-point stack took {elapsed:.2f}s, expected < 1s"
+
+
+# --- clock-skew alignment ------------------------------------------------
+
+# How many seconds the donor's clock runs fast in the alignment fixtures: it
+# stamps every reading this much later than the moment it actually recorded it.
+_SKEW_S = 5
+
+
+def _speed(second: int) -> float:
+    """A clearly varying speed shape so cross-correlation can lock onto a lag."""
+    return 5.0 + 3.0 * math.sin(second / 6.0)
+
+
+def _aligned_master() -> Activity:
+    """A GPS master carrying a varying speed shape, at true 1 Hz over ~60 s."""
+    return _activity(
+        [
+            _point(s, 52.0 + s * 1e-5, 4.0 + s * 1e-5, speed=_speed(s))
+            for s in range(61)
+        ],
+        device_name="Master",
+        source=WATCH_PATH,
+    )
+
+
+def _skewed_donor() -> Activity:
+    """A donor whose clock is ``_SKEW_S`` s fast, carrying speed and power.
+
+    The donor shares the master's speed shape (so the offset is detectable) and
+    carries power equal to its true second times ten. Every timestamp is stamped
+    ``_SKEW_S`` seconds late, so the reading the donor labels ``t`` is really the
+    value from ``t - _SKEW_S``.
+    """
+    return _activity(
+        [
+            _point(
+                s + _SKEW_S,
+                PLACEHOLDER_LAT,
+                PLACEHOLDER_LON,
+                speed=_speed(s),
+                power=s * 10,
+            )
+            for s in range(61)
+        ],
+        device_name="Donor",
+        source=TRAINER_PATH,
+    )
+
+
+def _power_at(merged: Activity, master_second: int) -> int:
+    """Return the merged power at the master point ``master_second`` seconds in."""
+    target = _BASE + timedelta(seconds=master_second)
+    for point in merged.points():
+        if point.time == target:
+            assert point.power is not None, f"no borrowed power at +{master_second}s"
+            return point.power
+    raise AssertionError(f"no master point at +{master_second}s")
+
+
+@pytest.mark.unit
+def test_clock_align_lines_the_borrowed_channel_up_with_the_donors_true_value() -> None:
+    master, donor = _aligned_master(), _skewed_donor()
+    # The donor's true power at second 30 is 300. Without correcting the skew the
+    # donor's stamp at master-time 30 holds the value from its true second 25.
+    settings = _settings(position_from=WATCH_PATH, clock_align=True, max_gap_s=2.0)
+
+    merged = stack([master, donor], settings)
+
+    # With the +5 s skew corrected, master-time 30 carries the donor's true
+    # second-30 reading (300), not the second-25 reading it would borrow raw.
+    assert _power_at(merged, 30) == 300
+
+
+@pytest.mark.unit
+def test_clock_align_beats_leaving_the_skew_in() -> None:
+    master = _aligned_master()
+    donor = _skewed_donor()
+    aligned = stack(
+        [master, donor],
+        _settings(position_from=WATCH_PATH, clock_align=True, max_gap_s=2.0),
+    )
+    raw = stack(
+        [master, donor],
+        _settings(position_from=WATCH_PATH, clock_align=False, max_gap_s=2.0),
+    )
+
+    true_power = 30 * 10  # the donor's real power at master-time 30
+    aligned_error = abs(_power_at(aligned, 30) - true_power)
+    raw_error = abs(_power_at(raw, 30) - true_power)
+    # Correcting the clock lands closer to the donor's real reading than leaving
+    # the 5 s skew in does.
+    assert aligned_error < raw_error
+
+
+@pytest.mark.unit
+def test_clock_align_defaults_off_and_changes_nothing() -> None:
+    master, donor = _aligned_master(), _skewed_donor()
+    # The default settings have clock_align off, so the borrowed channel is taken
+    # exactly as the explicit clock_align=False case does.
+    default = stack([master, donor], _settings(position_from=WATCH_PATH, max_gap_s=2.0))
+    explicit_off = stack(
+        [master, donor],
+        _settings(position_from=WATCH_PATH, clock_align=False, max_gap_s=2.0),
+    )
+
+    assert [p.power for p in default.points()] == [
+        p.power for p in explicit_off.points()
+    ]
+    # And with the skew left in, master-time 30 carries the donor's second-25
+    # reading (250), not its true second-30 reading (300).
+    assert _power_at(default, 30) == 250
+
+
+@pytest.mark.unit
+def test_clock_align_does_not_shift_the_master_timeline() -> None:
+    master, donor = _aligned_master(), _skewed_donor()
+    settings = _settings(position_from=WATCH_PATH, clock_align=True, max_gap_s=2.0)
+
+    merged = stack([master, donor], settings)
+
+    # The master's verbatim timeline, position, and elevation are untouched.
+    assert [p.time for p in merged.points()] == [p.time for p in master.points()]
+    assert [(p.lat, p.lon) for p in merged.points()] == [
+        (p.lat, p.lon) for p in master.points()
+    ]
+
+
+@pytest.mark.unit
+def test_clock_align_does_not_mutate_the_donor() -> None:
+    master, donor = _aligned_master(), _skewed_donor()
+    donor_times = [p.time for p in donor.points()]
+    donor_power = [p.power for p in donor.points()]
+
+    stack(
+        [master, donor],
+        _settings(position_from=WATCH_PATH, clock_align=True, max_gap_s=2.0),
+    )
+
+    assert [p.time for p in donor.points()] == donor_times
+    assert [p.power for p in donor.points()] == donor_power
