@@ -47,3 +47,12 @@ class ParseError(GpsmergeError):
 
 class UnsupportedFormat(GpsmergeError):
     """Raised for a file extension or output format we do not handle yet."""
+
+
+class WriteError(GpsmergeError):
+    """Raised when an activity cannot be serialised to the requested format.
+
+    The merge itself succeeded, but the chosen output format cannot represent
+    some value -- for example a sensor reading outside the range FIT can store.
+    Belongs to the :data:`EXIT_WRITE` category.
+    """

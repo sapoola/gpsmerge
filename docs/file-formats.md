@@ -8,9 +8,9 @@ gpsmerge reads and writes activity files. There are three formats you will meet 
 | ------ | ----- | -------------- |
 | GPX    | XML text | reads and writes |
 | TCX    | XML text | reads and writes |
-| FIT    | binary | reads (writing comes later) |
+| FIT    | binary | reads, and writes (experimental) |
 
-Today gpsmerge **reads and writes GPX and TCX, and reads FIT**. Writing FIT remains a later, experimental milestone; the data model already carries a `source_format` of `"gpx"`, `"tcx"`, or `"fit"`, so a FIT file you read merges and writes out as GPX or TCX just like any other input.
+Today gpsmerge **reads and writes GPX, TCX, and FIT**, with FIT writing still experimental. The data model carries a `source_format` of `"gpx"`, `"tcx"`, or `"fit"`, so any file you read merges and writes out as any of the three.
 
 ## GPX — the lingua franca
 
@@ -57,7 +57,21 @@ A few quirks that matter:
 - **Some channels come in two flavours.** FIT carries both `altitude`/`speed` and wider-range `enhanced_altitude`/`enhanced_speed`. gpsmerge prefers the enhanced field when it is present, because it is the one a modern device records when the plain field would clip, and falls back to the plain field otherwise.
 - It is the richest of the three formats — device identity (manufacturer, product, serial number, software version) and many sensor channels are all available — which is why the data model's `Device` has structured fields that mainly come from FIT.
 
-gpsmerge **reads FIT** via the `fitdecode` parser (see `fit.py`). Each `record` message becomes a track point, the `file_id` message supplies the device identity and creation time, and the `sport` (or `session`) message supplies the sport. Recording pauses survive as segment boundaries: a `timer` `stop` event closes the current segment and the next `timer` `start` opens a fresh one, exactly as a pause between TCX tracks does. **Writing FIT remains a later, experimental milestone** — for now a FIT file you read is written back out as GPX or TCX.
+gpsmerge **reads FIT** via the `fitdecode` parser (see `fit.py`). Each `record` message becomes a track point, the `file_id` message supplies the device identity and creation time, and the `sport` (or `session`) message supplies the sport. Recording pauses survive as segment boundaries: a `timer` `stop` event closes the current segment and the next `timer` `start` opens a fresh one, exactly as a pause between TCX tracks does.
+
+### Writing FIT (experimental)
+
+gpsmerge can also **write FIT** (`--format fit`), but the writer is newer than the reader and the binary format is unforgiving, so it is marked experimental: the output is round-trip tested against gpsmerge's own reader, but it has not been proven against every device's importer. Writing FIT needs the optional `fit-tool` dependency, installed with the `fit` extra (`pip install 'gpsmerge[fit]'`, or `poetry install --extras fit`); without it the FIT writer refuses with a clear install hint, and reading FIT is unaffected because that path uses `fitdecode`, a core dependency. Choosing FIT prints a one-line "experimental" heads-up on stderr (and in the wizard), and the wizard labels the FIT choice as experimental too.
+
+The written stream mirrors what the reader expects, so a written file reads back into the same model — apart from the documented losses below: a `file_id` for device attribution, an optional `sport` message, a `timer` `start` event, one `record` per point, a `timer` `stop` between segments (so pauses survive as segment boundaries) and a final stop, one `lap` per model lap carrying its span and trigger, then a single `session` and `activity` summary so a real device or Strava accepts the file. Per-lap and per-session totals are recomputed from the points on write, never trusted from a stored value, so they never go stale after a merge. As everywhere in gpsmerge, a channel that is absent is left unset on the message — fit-tool writes the FIT *invalid* sentinel, which reads back as `None`, never `0`. Position is written in degrees (fit-tool encodes the semicircles itself).
+
+The FIT-write losses are worth calling out, each documented and tested:
+
+- **Sub-second time is truncated.** FIT `record` timestamps are whole-second resolution, so a point's fractional second is dropped on write (the FIT analogue of TCX dropping temperature). A point at `12:00:00.500` reads back at `12:00:00`.
+- **Temperature is rounded to whole degrees.** FIT stores temperature as a signed byte at 1 °C resolution, so `21.5` °C reads back as `21`. Altitude and speed are quantised too (to 0.2 m and 0.001 m/s), but those steps sit below GPS noise and are not normally noticeable.
+- **Device attribution is best-effort.** The serial number, the creation time, and the device name (written as the free-text `product_name`) survive; the manufacturer is mapped back to the FIT manufacturer enum only when its name matches, and is otherwise omitted rather than forced onto a wrong code. A perfect `Device` round-trip is not claimed.
+- **An unmapped sport is omitted** rather than guessed, so a sport gpsmerge has no FIT enum for reads back as `None` instead of a wrong value.
+- **A reading equal to the FIT "invalid" sentinel reads back as absent.** FIT marks a missing channel with the type's maximum value, so a real reading that happens to land on it — heart rate or cadence `255`, power `65535`, temperature `127` — reads back as `None`. These values are physically implausible, so gpsmerge writes them as-is rather than nudging real data. A value beyond what FIT can store at all (for example power above `65535` W) is refused with a clear error naming the point, rather than a raw crash, so the same activity that exports fine to GPX or TCX fails loudly on `--format fit` instead of writing a corrupt file.
 
 ## Why this matters for merging
 

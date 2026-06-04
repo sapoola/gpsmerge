@@ -13,14 +13,19 @@ from pathlib import Path
 from tempfile import mkstemp
 
 from gpsmerge.errors import UnsupportedFormat
+from gpsmerge.fit import write_fit
 from gpsmerge.gpx import write_gpx
 from gpsmerge.model import Activity
 from gpsmerge.tcx import write_tcx
 
 # Maps an output format to the writer that serialises an Activity to a path.
+# ``fit`` is experimental and needs the optional ``fit-tool`` extra; write_fit
+# raises a clear install hint when it is missing, so registering it here is safe
+# even without the extra installed.
 _WRITERS: dict[str, Callable[[Activity, Path], None]] = {
     "gpx": write_gpx,
     "tcx": write_tcx,
+    "fit": write_fit,
 }
 
 
@@ -42,8 +47,9 @@ def write(activity: Activity, path: Path, output_format: str) -> None:
     path : Path
         Destination file path; overwritten (atomically) if it exists.
     output_format : str
-        The format to write. Today ``"gpx"`` and ``"tcx"`` are supported;
-        ``"fit"`` arrives in a later milestone.
+        The format to write: ``"gpx"``, ``"tcx"``, or (experimental) ``"fit"``.
+        Writing FIT needs the optional ``fit-tool`` extra; without it the FIT
+        writer raises a clear install hint.
 
     Raises
     ------

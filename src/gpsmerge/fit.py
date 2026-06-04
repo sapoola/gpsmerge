@@ -31,6 +31,7 @@ from typing import Any, Protocol
 
 import fitdecode
 
+from gpsmerge.errors import WriteError
 from gpsmerge.geo import semicircles_to_degrees
 from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
 
@@ -62,6 +63,50 @@ _POSITION_TRIGGER = "position"
 # an explicit map keeps the canonical set in one place and ignores FIT sports we
 # do not model.
 _CANONICAL_SPORTS = frozenset({"cycling", "running", "swimming", "walking", "hiking"})
+
+# --- write side --------------------------------------------------------------
+
+# Our canonical sports, paired with the FIT ``Sport`` enum *member name* to write
+# them as. (We name the member rather than import the enum at module top, so the
+# read path keeps working with only fitdecode -- fit-tool is an optional, lazily
+# imported dependency.) A sport not in this map has no FIT enum we trust, so we
+# omit the sport message rather than guess; it reads back as ``None``.
+_SPORT_TO_FIT = {
+    "cycling": "CYCLING",
+    "running": "RUNNING",
+    "swimming": "SWIMMING",
+    "walking": "WALKING",
+    "hiking": "HIKING",
+}
+
+# Our canonical lap triggers, paired with the FIT ``LapTrigger`` enum member name
+# to write them as. A trigger we cannot name falls back to ``MANUAL`` -- the FIT
+# safe default, mirroring how the TCX writer falls back to ``Manual``.
+_TRIGGER_TO_FIT = {
+    "manual": "MANUAL",
+    "distance": "DISTANCE",
+    "time": "TIME",
+    "position": "POSITION_START",
+    "session_end": "SESSION_END",
+}
+_DEFAULT_TRIGGER_FIT = "MANUAL"
+
+# The FIT ``EventType`` member names for a timer start and a (full) stop. Named
+# here so the timer-event helper resolves them by name, the same by-name pattern
+# the sport/trigger/manufacturer maps use, keeping the enum import lazy.
+_EVENT_TYPE_START = "START"
+_EVENT_TYPE_STOP = "STOP_ALL"
+
+# FIT timestamps are set on fit-tool messages in milliseconds since the Unix
+# epoch (fit-tool converts to the FIT epoch itself). One whole second is 1000 ms.
+_MILLISECONDS_PER_SECOND = 1000
+
+# Optional-dependency guidance shown when fit-tool is not installed.
+_FIT_TOOL_MISSING = (
+    "writing FIT needs the optional 'fit-tool' dependency, which is not "
+    "installed. Install it with: pip install 'gpsmerge[fit]' "
+    "(or: poetry install --extras fit)"
+)
 
 
 def read_fit(path: Path) -> Activity:
@@ -356,3 +401,438 @@ def _to_utc(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def write_fit(activity: Activity, path: Path) -> None:
+    """Write an :class:`Activity` to a structurally complete FIT file.
+
+    **Experimental.** FIT writing is the newest output and the binary format is
+    unforgiving; the result is round-trip tested (see ``test_fit_write.py``) but
+    has not been proven against every device's importer. The reader is the mature
+    path -- treat a written FIT file as best-effort.
+
+    The message stream mirrors what :func:`read_fit` expects, so a written file
+    reads back faithfully: a ``file_id`` (device attribution), an optional
+    ``sport`` message, a timer ``start`` event, one ``record`` per point, a timer
+    ``stop`` between segments (so pauses survive as segment boundaries) and a
+    final stop, one ``lap`` per model lap with its span and trigger, then a single
+    ``session`` and ``activity`` summary so a real device or Strava accepts it.
+    Per-lap and per-session totals are recomputed from the points on write, never
+    trusted from a stored value, so they cannot go stale after a merge.
+
+    A channel that is ``None`` is simply not set on the message, so fit-tool
+    writes the FIT *invalid* sentinel and :func:`read_fit` maps it back to
+    ``None`` -- an absent channel never serialises as ``0``. Position is set in
+    degrees (fit-tool encodes the semicircles itself).
+
+    Known FIT-write losses, all documented and tested:
+
+    - **Sub-second time is truncated.** FIT record timestamps are whole-second
+      resolution, so a point's fractional second is dropped (like GPX speed and
+      TCX temperature are documented losses).
+    - **Temperature is rounded to whole degrees.** FIT stores temperature as a
+      signed byte at 1 degC resolution, so ``21.5`` degC reads back as ``21``.
+      (Altitude and speed quantise too -- to 0.2 m and 0.001 m/s -- but those are
+      below GPS noise.)
+    - **Device attribution is best-effort.** ``serial_number``, ``time_created``,
+      and the device name (as free-text ``product_name``) are written; the
+      manufacturer is mapped back to the FIT enum only when its name matches, else
+      omitted. A perfect :class:`Device` round-trip is not claimed.
+    - **An unmapped sport is omitted** rather than guessed, so it reads as
+      ``None``.
+    - **A reading equal to the FIT "invalid" sentinel reads back as absent.** FIT
+      marks a missing channel with the type's maximum, so a real value that lands
+      on it (heart rate or cadence ``255``, power ``65535``, temperature ``127``)
+      comes back ``None``. These are physically implausible, so the value is
+      written as-is rather than nudged.
+
+    A channel value beyond what FIT can store at all (for example power above
+    ``65535`` W) cannot be written: rather than a raw fit-tool traceback, a clear
+    :class:`~gpsmerge.errors.WriteError` is raised naming the point (see
+    :func:`_build_record`).
+
+    Parameters
+    ----------
+    activity : Activity
+        The activity to serialise.
+    path : Path
+        Destination file path; overwritten if it exists. (The caller handles
+        atomicity; this function only builds and writes the file it is given.)
+
+    Raises
+    ------
+    RuntimeError
+        If the optional ``fit-tool`` dependency is not installed, with guidance
+        on how to install it.
+    WriteError
+        If a channel value falls outside the range FIT can store.
+    """
+    fit = _load_fit_tool()
+    builder = fit.FitFileBuilder(auto_define=True)
+    for message in _build_messages(activity, fit):
+        builder.add(message)
+    builder.build().to_file(str(path))
+
+
+class _FitTool:
+    """The slice of the optional ``fit-tool`` package the writer uses.
+
+    fit-tool is imported lazily (inside :func:`write_fit`) so the read path keeps
+    working with only fitdecode installed. Loading every class and enum once into
+    this small container keeps the message builders below readable and means the
+    import lives in exactly one place.
+    """
+
+    def __init__(self) -> None:
+        from fit_tool.fit_file_builder import FitFileBuilder
+        from fit_tool.profile.messages.activity_message import ActivityMessage
+        from fit_tool.profile.messages.event_message import EventMessage
+        from fit_tool.profile.messages.file_id_message import FileIdMessage
+        from fit_tool.profile.messages.lap_message import LapMessage
+        from fit_tool.profile.messages.record_message import RecordMessage
+        from fit_tool.profile.messages.session_message import SessionMessage
+        from fit_tool.profile.messages.sport_message import SportMessage
+        from fit_tool.profile.profile_type import (
+            Event,
+            EventType,
+            FileType,
+            LapTrigger,
+            Manufacturer,
+            Sport,
+        )
+
+        self.FitFileBuilder = FitFileBuilder
+        self.ActivityMessage = ActivityMessage
+        self.EventMessage = EventMessage
+        self.FileIdMessage = FileIdMessage
+        self.LapMessage = LapMessage
+        self.RecordMessage = RecordMessage
+        self.SessionMessage = SessionMessage
+        self.SportMessage = SportMessage
+        self.Event = Event
+        self.EventType = EventType
+        self.FileType = FileType
+        self.LapTrigger = LapTrigger
+        self.Manufacturer = Manufacturer
+        self.Sport = Sport
+
+
+def _load_fit_tool() -> _FitTool:
+    """Import the optional ``fit-tool`` package, or raise a helpful error.
+
+    fit-tool is an optional extra (``pip install 'gpsmerge[fit]'``); the read path
+    does not need it. We import it only when actually writing FIT, and turn a
+    missing import into an actionable :class:`RuntimeError` rather than letting an
+    opaque ``ImportError`` surface.
+    """
+    try:
+        return _FitTool()
+    except ImportError as exc:
+        raise RuntimeError(_FIT_TOOL_MISSING) from exc
+
+
+def _build_messages(activity: Activity, fit: _FitTool) -> list[object]:
+    """Build the ordered FIT message stream for `activity`.
+
+    The order is the one :func:`read_fit` (and real devices) expect: identity and
+    sport first, then the timer-bracketed records grouped by segment, then the lap
+    overlay, then the single session and activity summaries.
+    """
+    start = _activity_start(activity)
+    messages: list[object] = [_build_file_id(activity.device, start, fit)]
+    sport = _build_sport(activity.sport, fit)
+    if sport is not None:
+        messages.append(sport)
+    messages.extend(_build_records(activity, fit))
+    messages.extend(_build_laps(activity.laps, fit))
+    messages.append(_build_session(activity, start, fit))
+    messages.append(_build_activity(activity, fit))
+    return messages
+
+
+def _activity_start(activity: Activity) -> datetime | None:
+    """Return the first point's time, or the activity's creation time as a fallback."""
+    for point in activity.points():
+        if point.time is not None:
+            return point.time
+    return activity.time_created
+
+
+def _build_file_id(device: Device, start: datetime | None, fit: _FitTool) -> object:
+    """Build the ``file_id`` message: file type, device attribution, creation time.
+
+    Device attribution is best-effort. The serial number and the device name (as
+    free-text ``product_name``) are written verbatim; the manufacturer is mapped
+    back to the FIT enum only when its name matches, otherwise omitted -- we never
+    force an unknown maker onto a wrong code.
+    """
+    message = fit.FileIdMessage()
+    message.type = fit.FileType.ACTIVITY.value
+    if start is not None:
+        message.time_created = _to_millis(start)
+    if device.serial_number is not None:
+        message.serial_number = device.serial_number
+    if device.name is not None:
+        message.product_name = device.name
+    manufacturer = _manufacturer_value(device.manufacturer, fit)
+    if manufacturer is not None:
+        message.manufacturer = manufacturer
+    return message
+
+
+def _manufacturer_value(manufacturer: str | None, fit: _FitTool) -> int | None:
+    """Return the FIT ``Manufacturer`` code for `manufacturer`, or ``None``.
+
+    The model stores a decoded name like ``"garmin"`` or ``"stages_cycling"``; we
+    map it back to the enum by upper-casing to its member name. A maker the enum
+    does not know is omitted (``None``) rather than guessed at.
+    """
+    if manufacturer is None:
+        return None
+    member = fit.Manufacturer.__members__.get(manufacturer.upper())
+    return int(member.value) if member is not None else None
+
+
+def _build_sport(sport: str | None, fit: _FitTool) -> object | None:
+    """Build a ``sport`` message, or ``None`` for an absent or unmapped sport.
+
+    A sport we have no FIT enum for is dropped rather than guessed, so it reads
+    back as ``None`` instead of a wrong sport.
+    """
+    member_name = _SPORT_TO_FIT.get(sport) if sport is not None else None
+    if member_name is None:
+        return None
+    message = fit.SportMessage()
+    message.sport = fit.Sport[member_name].value
+    return message
+
+
+def _build_records(activity: Activity, fit: _FitTool) -> list[object]:
+    """Build the timer-bracketed ``record`` stream across every segment.
+
+    A timer ``start`` event opens the recording and one ``record`` is emitted per
+    point. A timer ``stop_all`` event closes each segment; because :func:`read_fit`
+    splits a new segment at every timer stop, emitting a stop between segments
+    (and a final stop at the end) is what makes pauses survive the round-trip.
+    Empty segments contribute nothing.
+    """
+    messages: list[object] = []
+    started = False
+    for segment in activity.segments:
+        if not segment.points:
+            continue
+        first_time = _first_time(segment.points)
+        if not started:
+            messages.append(_build_timer(first_time, _EVENT_TYPE_START, fit))
+            started = True
+        for point in segment.points:
+            messages.append(_build_record(point, fit))
+        messages.append(_build_timer(_last_time(segment.points), _EVENT_TYPE_STOP, fit))
+        started = False
+    return messages
+
+
+def _build_record(point: TrackPoint, fit: _FitTool) -> object:
+    """Build one ``record`` message, setting only the channels the point carries.
+
+    A ``None`` channel is left unset so fit-tool writes the FIT *invalid* sentinel
+    and the reader maps it back to ``None`` -- an absent channel is never written
+    as ``0``.
+
+    Raises
+    ------
+    WriteError
+        If a channel value falls outside the range FIT can store. fit-tool rejects
+        it on assignment with an opaque error; we turn that into a clear, actionable
+        one naming the offending point, so the same activity that exports fine to
+        GPX/TCX fails loudly rather than with a raw traceback on ``--format fit``.
+    """
+    message = fit.RecordMessage()
+    try:
+        _set_record_channels(message, point)
+    except Exception as exc:
+        # fit-tool raises a bare ``Exception`` for an unrepresentable value.
+        raise WriteError(
+            f"cannot write the point at {_point_label(point)} to FIT: {exc}"
+        ) from exc
+    return message
+
+
+def _set_record_channels(message: Any, point: TrackPoint) -> None:
+    """Set each channel the point carries on `message`, in real-world units.
+
+    Every channel is set in real-world units (degrees, metres, m/s, bpm, rpm, W,
+    degC); fit-tool applies the FIT scale/offset. Absent channels are skipped (see
+    :func:`_build_record`).
+    """
+    if point.time is not None:
+        message.timestamp = _to_millis(point.time)
+    if point.lat is not None:
+        message.position_lat = point.lat
+    if point.lon is not None:
+        message.position_long = point.lon
+    if point.ele is not None:
+        message.altitude = point.ele
+    if point.distance is not None:
+        message.distance = point.distance
+    if point.hr is not None:
+        message.heart_rate = point.hr
+    if point.cad is not None:
+        message.cadence = point.cad
+    if point.power is not None:
+        message.power = point.power
+    if point.temp is not None:
+        message.temperature = point.temp
+    if point.speed is not None:
+        message.speed = point.speed
+
+
+def _point_label(point: TrackPoint) -> str:
+    """Return a label for a point in an error: its UTC time, or that it has none."""
+    return point.time.isoformat() if point.time is not None else "an untimed point"
+
+
+def _build_timer(when: datetime | None, event_type_name: str, fit: _FitTool) -> object:
+    """Build a timer event at `when`, of the named ``EventType`` (a segment boundary).
+
+    `event_type_name` is a FIT ``EventType`` member name (``"START"`` or
+    ``"STOP_ALL"``); resolving it by name here keeps the enum import lazy.
+    """
+    message = fit.EventMessage()
+    if when is not None:
+        message.timestamp = _to_millis(when)
+    message.event = fit.Event.TIMER.value
+    message.event_type = fit.EventType[event_type_name].value
+    return message
+
+
+def _build_laps(laps: list[Lap], fit: _FitTool) -> list[object]:
+    """Build one ``lap`` message per model lap, in start-time order.
+
+    A FIT lap stores its start under ``start_time`` and its end under the message
+    ``timestamp``, mirroring how :func:`read_fit` reads them back. The trigger is
+    mapped to the FIT enum (an unknown trigger falls back to ``MANUAL``). A lap
+    with no end runs to its start, so the span is always well-formed.
+    """
+    ordered = sorted(laps, key=lambda lap: lap.start_time)
+    return [_build_lap(index, lap, fit) for index, lap in enumerate(ordered)]
+
+
+def _build_lap(index: int, lap: Lap, fit: _FitTool) -> object:
+    """Build one ``lap`` message: index, span, trigger, and recomputed elapsed time."""
+    end = lap.end_time if lap.end_time is not None else lap.start_time
+    message = fit.LapMessage()
+    message.message_index = index
+    message.start_time = _to_millis(lap.start_time)
+    message.timestamp = _to_millis(end)
+    message.lap_trigger = _lap_trigger_value(lap.trigger, fit)
+    elapsed = (end - lap.start_time).total_seconds()
+    message.total_elapsed_time = elapsed
+    message.total_timer_time = elapsed
+    return message
+
+
+def _lap_trigger_value(trigger: str | None, fit: _FitTool) -> int:
+    """Return the FIT ``LapTrigger`` code for `trigger`, defaulting to ``MANUAL``."""
+    member_name = _TRIGGER_TO_FIT.get(trigger or "", _DEFAULT_TRIGGER_FIT)
+    return int(fit.LapTrigger[member_name].value)
+
+
+def _build_session(activity: Activity, start: datetime | None, fit: _FitTool) -> object:
+    """Build the single ``session`` summary, with totals recomputed from the points.
+
+    A session carries the activity's span, sport, and totals plus the lap index
+    range it covers. Totals are recomputed here rather than trusted from any
+    stored value, so they always match the (possibly merged) data.
+    """
+    end = _activity_end(activity)
+    message = fit.SessionMessage()
+    message.message_index = 0
+    if start is not None:
+        message.start_time = _to_millis(start)
+    if end is not None:
+        message.timestamp = _to_millis(end)
+    sport_name = _SPORT_TO_FIT.get(activity.sport or "")
+    if sport_name is not None:
+        message.sport = fit.Sport[sport_name].value
+    elapsed = _elapsed_seconds(start, end)
+    message.total_elapsed_time = elapsed
+    message.total_timer_time = _moving_seconds(activity)
+    message.total_distance = _total_distance(activity)
+    message.num_laps = max(len(activity.laps), 1)
+    message.first_lap_index = 0
+    return message
+
+
+def _build_activity(activity: Activity, fit: _FitTool) -> object:
+    """Build the single ``activity`` summary that closes the file."""
+    end = _activity_end(activity)
+    message = fit.ActivityMessage()
+    if end is not None:
+        message.timestamp = _to_millis(end)
+    message.num_sessions = 1
+    message.total_timer_time = _moving_seconds(activity)
+    return message
+
+
+def _activity_end(activity: Activity) -> datetime | None:
+    """Return the last recorded point's time, or ``None`` when none carry a time."""
+    times = [p.time for p in activity.points() if p.time is not None]
+    return max(times) if times else None
+
+
+def _elapsed_seconds(start: datetime | None, end: datetime | None) -> float:
+    """Return wall-clock seconds from `start` to `end`, or ``0`` if either is absent."""
+    if start is None or end is None:
+        return 0.0
+    return (end - start).total_seconds()
+
+
+def _moving_seconds(activity: Activity) -> float:
+    """Sum the recorded time within each segment, excluding pauses between them."""
+    total = 0.0
+    for segment in activity.segments:
+        times = [p.time for p in segment.points if p.time is not None]
+        if len(times) >= 2:
+            total += (times[-1] - times[0]).total_seconds()
+    return total
+
+
+def _total_distance(activity: Activity) -> float:
+    """Return the largest recorded cumulative distance, or ``0`` if none recorded."""
+    distances = [p.distance for p in activity.points() if p.distance is not None]
+    return max(distances) if distances else 0.0
+
+
+def _first_time(points: list[TrackPoint]) -> datetime | None:
+    """Return the first point's time, or ``None`` if none carry one."""
+    for point in points:
+        if point.time is not None:
+            return point.time
+    return None
+
+
+def _last_time(points: list[TrackPoint]) -> datetime | None:
+    """Return the last point's time, or ``None`` if none carry one."""
+    for point in reversed(points):
+        if point.time is not None:
+            return point.time
+    return None
+
+
+def _to_millis(value: datetime) -> int:
+    """Return milliseconds since the Unix epoch for `value`.
+
+    fit-tool sets timestamps in milliseconds since the Unix epoch and converts to
+    the FIT epoch internally. The sub-second part of `value` is truncated to a
+    whole second here because FIT record timestamps are whole-second resolution --
+    a documented FIT-write loss.
+
+    A naive `value` is taken to be UTC, mirroring the read side (every reader
+    normalises to tz-aware UTC); without this a naive datetime would be read in the
+    machine's local zone and encode a wrong instant.
+    """
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    whole_seconds = int(value.timestamp())
+    return whole_seconds * _MILLISECONDS_PER_SECOND

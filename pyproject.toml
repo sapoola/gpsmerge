@@ -35,6 +35,12 @@ dependencies = [
     "platformdirs>=4.0",
 ]
 
+[project.optional-dependencies]
+# Writing FIT is experimental and needs fit-tool; reading FIT only needs
+# fitdecode (a core dependency), so the writer is gated behind this extra.
+# Install with: pip install 'gpsmerge[fit]'  (or: poetry install --extras fit)
+fit = ["fit-tool>=0.9.0"]
+
 [project.urls]
 Homepage = "https://github.com/sapoola/gpsmerge"
 Repository = "https://github.com/sapoola/gpsmerge"

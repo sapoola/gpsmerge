@@ -21,6 +21,7 @@ from gpsmerge.errors import (
     EXIT_WRITE,
     GpsmergeError,
     Issue,
+    WriteError,
 )
 from gpsmerge.geo import cumulative_distance, haversine
 from gpsmerge.merge import append, detect_mode, stack
@@ -164,6 +165,8 @@ def run(settings: Settings) -> RunResult:
 
     try:
         write(merged, settings.output, settings.output_format)
+    except WriteError as exc:
+        return RunResult(issues=[Issue(EXIT_WRITE, str(exc))], preview=preview)
     except OSError as exc:
         return RunResult(
             issues=[Issue(EXIT_WRITE, f"could not write {settings.output}: {exc}")],

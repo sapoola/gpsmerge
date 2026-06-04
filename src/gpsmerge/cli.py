@@ -42,9 +42,23 @@ _err_console = Console(stderr=True)
 _out_console = Console()
 
 
+# The one output format that is still experimental; choosing it earns a one-line
+# heads-up on stderr so the user knows the writer is new and best-effort.
+_EXPERIMENTAL_FORMAT = "fit"
+
+
 def _error(message: str) -> None:
     """Print an error to stderr in red (plain when colour is disabled)."""
     _err_console.print(message, style="red")
+
+
+def _warn_experimental_fit() -> None:
+    """Warn on stderr that writing FIT is experimental and best-effort."""
+    _err_console.print(
+        "FIT writing is experimental and best-effort; verify the file imports "
+        "before relying on it.",
+        style="yellow",
+    )
 
 
 def _warn(message: str) -> None:
@@ -116,7 +130,8 @@ def run(
     output_format: str = typer.Option(
         "gpx",
         "--format",
-        help="Output format: 'gpx' or 'tcx'.",
+        help="Output format: 'gpx', 'tcx', or 'fit' (experimental; needs the "
+        "fit-tool extra).",
         rich_help_panel="Output",
     ),
     device_from: Path | None = typer.Option(
@@ -324,6 +339,8 @@ def run(
         raise typer.Exit(EXIT_USAGE)
 
     resolved = _resolve_profile(ctx, saved, flag_values)
+    if resolved["output_format"] == _EXPERIMENTAL_FORMAT:
+        _warn_experimental_fit()
 
     # A dry run with no --out still needs *some* path for Settings (its output is
     # required), but nothing is written, so a placeholder is harmless and the
@@ -479,14 +496,17 @@ def formats() -> None:
     """Print the supported formats and which channels each carries."""
     typer.echo("Supported formats:")
     typer.echo("  read:  gpx, tcx, fit")
-    typer.echo("  write: gpx, tcx")
+    typer.echo("  write: gpx, tcx, fit (experimental)")
     typer.echo("")
     typer.echo("Channels carried by each format:")
     typer.echo("  gpx: position, elevation, hr, cadence, power, temperature, speed")
     typer.echo("  tcx: position, elevation, hr, cadence, power, speed (no temperature)")
     typer.echo("  fit: position, elevation, hr, cadence, power, temperature, speed")
     typer.echo("")
-    typer.echo("Notes: FIT is read-only for now; writing FIT is a later milestone.")
+    typer.echo("Notes: writing FIT is experimental; install the extra with")
+    typer.echo("       'pip install gpsmerge[fit]'. Sub-second times truncate to")
+    typer.echo("       whole seconds on FIT write, and device attribution is")
+    typer.echo("       best-effort.")
     typer.echo("       TCX has no temperature channel; it is dropped on write.")
 
 

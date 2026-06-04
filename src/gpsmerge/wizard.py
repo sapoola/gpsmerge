@@ -570,20 +570,34 @@ def _device_label(activity: Activity, path: Path) -> str:
 
 
 def _ask_output_format() -> str:
-    """Ask which format to write, defaulting to GPX."""
-    answer = _ask(
-        questionary.select(
-            "What format should the merged file be?",
-            choices=[
-                questionary.Choice(
-                    "GPX -- works everywhere (recommended)", value="gpx"
-                ),
-                questionary.Choice("TCX -- no temperature channel", value="tcx"),
-            ],
-            default="gpx",
+    """Ask which format to write, defaulting to GPX.
+
+    FIT is offered but labelled experimental, and choosing it earns a one-line
+    heads-up that the writer is new and best-effort.
+    """
+    answer = str(
+        _ask(
+            questionary.select(
+                "What format should the merged file be?",
+                choices=[
+                    questionary.Choice(
+                        "GPX -- works everywhere (recommended)", value="gpx"
+                    ),
+                    questionary.Choice("TCX -- no temperature channel", value="tcx"),
+                    questionary.Choice(
+                        "FIT -- binary, like your device (experimental)", value="fit"
+                    ),
+                ],
+                default="gpx",
+            )
         )
     )
-    return str(answer)
+    if answer == "fit":
+        _console.print(
+            "[yellow]Heads up: FIT writing is experimental and best-effort -- "
+            "check the file imports before relying on it.[/yellow]"
+        )
+    return answer
 
 
 def _ask_timezone() -> str | None:
