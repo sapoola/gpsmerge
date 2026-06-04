@@ -26,6 +26,21 @@ _OFFSET_RE = re.compile(r"^(?P<sign>[+-])(?P<hours>\d{1,2})(?::(?P<minutes>\d{2}
 # Largest offset any real zone uses is +14:00; reject anything beyond a day.
 _MAX_OFFSET_HOURS: int = 24
 
+# A single-unit duration like "+1h", "-30m", "90s", "45.5s". The unit is
+# required; the sign and decimals are optional.
+_UNIT_DURATION_RE = re.compile(
+    r"^(?P<sign>[+-])?(?P<value>\d+(?:\.\d+)?)(?P<unit>[hms])$"
+)
+
+# A clock-form duration like "+1:30:00" (H:MM:SS) or "-0:02:30" (MM:SS). Minutes
+# and seconds are two digits; the leading field has no width limit.
+_CLOCK_DURATION_RE = re.compile(
+    r"^(?P<sign>[+-])?(?:(?P<hours>\d+):)?(?P<minutes>\d{1,2}):(?P<seconds>\d{2})$"
+)
+
+# Seconds per unit, used to scale a single-unit duration.
+_UNIT_SECONDS: dict[str, int] = {"h": 3600, "m": 60, "s": 1}
+
 
 def parse_time(value: str) -> datetime:
     """Parse an ISO-8601 timestamp into a timezone-aware UTC datetime.
@@ -173,6 +188,60 @@ def _parse_offset(spec: str) -> timezone | None:
     if match["sign"] == "-":
         delta = -delta
     return timezone(delta)
+
+
+def parse_duration(spec: str) -> timedelta:
+    """Parse a signed duration spec into a :class:`~datetime.timedelta`.
+
+    Two forms are accepted. A single-unit value names hours, minutes, or seconds
+    with a unit suffix (``"+1h"``, ``"-30m"``, ``"90s"``, ``"45.5s"``). A clock
+    value is ``H:MM:SS`` or ``MM:SS`` (``"+1:30:00"``, ``"-0:02:30"``, ``"2:30"``).
+    A leading ``"+"`` is optional and a leading ``"-"`` negates the whole span.
+    Clock fields may carry over, the way durations do: ``"0:90"`` is one minute
+    thirty seconds.
+
+    Parameters
+    ----------
+    spec : str
+        A single-unit or clock-form duration.
+
+    Returns
+    -------
+    timedelta
+        The duration, negative when the spec was signed ``"-"``.
+
+    Raises
+    ------
+    ValueError
+        If `spec` matches neither the single-unit nor the clock form.
+    """
+    cleaned = spec.strip()
+    if not cleaned:
+        raise ValueError("duration spec is empty")
+
+    unit_match = _UNIT_DURATION_RE.match(cleaned)
+    if unit_match is not None:
+        seconds = float(unit_match["value"]) * _UNIT_SECONDS[unit_match["unit"]]
+        return _signed_delta(unit_match["sign"], seconds)
+
+    clock_match = _CLOCK_DURATION_RE.match(cleaned)
+    if clock_match is not None:
+        hours = int(clock_match["hours"] or 0)
+        minutes = int(clock_match["minutes"])
+        seconds = int(clock_match["seconds"])
+        total = hours * _UNIT_SECONDS["h"] + minutes * _UNIT_SECONDS["m"] + seconds
+        return _signed_delta(clock_match["sign"], total)
+
+    raise ValueError(
+        f"could not understand duration {spec!r}; use e.g. '+1h', '-30m', "
+        "'90s', or '+1:30:00'"
+    )
+
+
+def _signed_delta(sign: str | None, seconds: float) -> timedelta:
+    """Return a timedelta of ``seconds``, negated when ``sign`` is ``"-"``."""
+    delta = timedelta(seconds=seconds)
+    return -delta if sign == "-" else delta
 
 
 def utc_range(start: datetime, end: datetime) -> str:

@@ -155,6 +155,40 @@ def run(
         "stays UTC). An IANA name like 'Europe/Amsterdam' (auto-handles summer "
         "time) or a fixed offset like '+02:00'.",
     ),
+    shift: str | None = typer.Option(
+        None,
+        "--shift",
+        help="Add a signed duration to every timestamp to fix a wrong device "
+        "clock, e.g. '+1h', '-30m', '90s', or '+1:30:00'.",
+    ),
+    trim_start: str | None = typer.Option(
+        None,
+        "--trim-start",
+        help="Drop points before this ISO time, e.g. '2026-06-04T08:30:00Z'.",
+    ),
+    trim_end: str | None = typer.Option(
+        None,
+        "--trim-end",
+        help="Drop points after this ISO time, e.g. '2026-06-04T09:30:00Z'.",
+    ),
+    smooth_elevation: int | None = typer.Option(
+        None,
+        "--smooth-elevation",
+        help="Smooth elevation with a centred moving average of this window "
+        "(an odd integer >= 3).",
+    ),
+    insert_stopped_time: bool = typer.Option(
+        False,
+        "--insert-stopped-time/--no-insert-stopped-time",
+        help="Split the track at long non-moving gaps so they count as pauses, "
+        "not moving time.",
+    ),
+    stopped_time_threshold: float = typer.Option(
+        30.0,
+        "--stopped-time-threshold",
+        help="With --insert-stopped-time, a gap longer than this many seconds "
+        "becomes a pause.",
+    ),
     assume_yes: bool = typer.Option(
         False, "--yes", "-y", help="Overwrite the output without asking."
     ),
@@ -224,6 +258,12 @@ def run(
                 "device_from": device_from,
                 "sport": resolved["sport"],
                 "timezone": resolved["timezone"],
+                "shift": shift,
+                "trim_start": trim_start,
+                "trim_end": trim_end,
+                "smooth_elevation": smooth_elevation,
+                "insert_stopped_time": insert_stopped_time,
+                "stopped_time_threshold_s": stopped_time_threshold,
                 "assume_yes": assume_yes,
                 "dry_run": dry_run,
                 "json_output": json_output,

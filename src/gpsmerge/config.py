@@ -70,6 +70,24 @@ class Settings(BaseModel):
         ``"Europe/Amsterdam"`` or a fixed offset such as ``"+02:00"``). It makes
         the preview and JSON show local times so the user can sanity-check; the
         merged file's timestamps always stay UTC.
+    shift : str or None
+        A signed duration to add to every timestamp after merging, to correct a
+        wrong device clock (e.g. ``"+1h"``, ``"-30m"``, ``"+1:30:00"``). Kept as
+        the raw spec so validation can report a clean parse error; see
+        :func:`gpsmerge.timeutil.parse_duration`.
+    trim_start, trim_end : str or None
+        ISO timestamps bounding which points to keep after merging; an open bound
+        is unbounded on that side. Kept raw so a bad value is a clean validation
+        error rather than a crash; see :func:`gpsmerge.timeutil.parse_time`.
+    smooth_elevation : int or None
+        If set, the window width for the centred moving average that smooths
+        elevation. Must be an odd integer at least 3 (validation enforces this).
+    insert_stopped_time : bool
+        Split the merged track at every long non-moving gap so the gap counts as
+        a pause (stopped time) rather than moving time.
+    stopped_time_threshold_s : float
+        When ``insert_stopped_time`` is set, a gap longer than this many seconds
+        becomes a segment boundary.
     """
 
     inputs: list[Path]
@@ -92,3 +110,9 @@ class Settings(BaseModel):
     dry_run: bool = False
     json_output: bool = False
     timezone: str | None = None
+    shift: str | None = None
+    trim_start: str | None = None
+    trim_end: str | None = None
+    smooth_elevation: int | None = None
+    insert_stopped_time: bool = False
+    stopped_time_threshold_s: float = 30.0

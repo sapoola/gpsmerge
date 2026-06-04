@@ -253,3 +253,69 @@ def test_unparseable_timezone_is_a_usage_error(tmp_path: Path) -> None:
     result = run(_settings(inputs, output, dry_run=True, timezone="Mars/Olympus"))
 
     assert any(issue.code == EXIT_USAGE for issue in result.issues)
+
+
+# --- post-merge transforms ----------------------------------------------
+
+
+@pytest.mark.unit
+def test_trim_reduces_the_preview_point_count(tmp_path: Path) -> None:
+    inputs = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    # The four points span 08:00:00 to 08:05:10; trimming to the first recording
+    # keeps only its two points.
+    result = run(
+        _settings(
+            inputs,
+            output,
+            dry_run=True,
+            trim_start="2026-06-04T08:00:00Z",
+            trim_end="2026-06-04T08:00:10Z",
+        )
+    )
+
+    assert result.preview is not None
+    assert result.preview.point_count == 2
+
+
+@pytest.mark.unit
+def test_shift_moves_the_preview_start_time(tmp_path: Path) -> None:
+    inputs = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = run(_settings(inputs, output, dry_run=True, shift="+1h"))
+
+    assert result.preview is not None
+    assert result.preview.start_time == datetime(2026, 6, 4, 9, 0, 0, tzinfo=UTC)
+
+
+@pytest.mark.unit
+def test_insert_stopped_time_lowers_moving_time_below_elapsed(tmp_path: Path) -> None:
+    # The two recordings are 5 minutes apart; once that gap is a pause, moving
+    # time (within segments) is well below the elapsed wall-clock span.
+    inputs = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = run(
+        _settings(
+            inputs,
+            output,
+            dry_run=True,
+            insert_stopped_time=True,
+            stopped_time_threshold_s=30.0,
+        )
+    )
+
+    assert result.preview is not None
+    assert result.preview.moving_seconds < result.preview.elapsed_seconds
+
+
+@pytest.mark.unit
+def test_unparseable_shift_is_a_usage_error(tmp_path: Path) -> None:
+    inputs = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = run(_settings(inputs, output, dry_run=True, shift="soon"))
+
+    assert any(issue.code == EXIT_USAGE for issue in result.issues)

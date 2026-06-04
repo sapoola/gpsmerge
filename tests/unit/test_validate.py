@@ -166,3 +166,76 @@ def test_tcx_output_of_position_less_recordings_is_allowed(tmp_path: Path) -> No
         _indoor_pair(), _settings(tmp_path / "out.tcx", output_format="tcx")
     )
     assert issues == []
+
+
+# --- post-merge transform options ----------------------------------------
+
+
+@pytest.mark.unit
+def test_unparseable_shift_is_a_usage_error(tmp_path: Path) -> None:
+    issues = validate(_two_sequential(), _settings(tmp_path / "out.gpx", shift="soon"))
+    assert any(issue.code == EXIT_USAGE for issue in issues)
+
+
+@pytest.mark.unit
+def test_valid_shift_has_no_issues(tmp_path: Path) -> None:
+    issues = validate(_two_sequential(), _settings(tmp_path / "out.gpx", shift="+1h"))
+    assert issues == []
+
+
+@pytest.mark.unit
+def test_unparseable_trim_start_is_a_usage_error(tmp_path: Path) -> None:
+    issues = validate(
+        _two_sequential(), _settings(tmp_path / "out.gpx", trim_start="tomorrow")
+    )
+    assert any(issue.code == EXIT_USAGE for issue in issues)
+
+
+@pytest.mark.unit
+def test_trim_start_not_before_end_is_a_usage_error(tmp_path: Path) -> None:
+    issues = validate(
+        _two_sequential(),
+        _settings(
+            tmp_path / "out.gpx",
+            trim_start="2026-06-04T09:00:00Z",
+            trim_end="2026-06-04T08:00:00Z",
+        ),
+    )
+    assert any(issue.code == EXIT_USAGE for issue in issues)
+
+
+@pytest.mark.unit
+def test_trim_start_before_end_has_no_issues(tmp_path: Path) -> None:
+    issues = validate(
+        _two_sequential(),
+        _settings(
+            tmp_path / "out.gpx",
+            trim_start="2026-06-04T08:00:00Z",
+            trim_end="2026-06-04T09:00:00Z",
+        ),
+    )
+    assert issues == []
+
+
+@pytest.mark.unit
+def test_even_smooth_elevation_window_is_a_usage_error(tmp_path: Path) -> None:
+    issues = validate(
+        _two_sequential(), _settings(tmp_path / "out.gpx", smooth_elevation=4)
+    )
+    assert any(issue.code == EXIT_USAGE for issue in issues)
+
+
+@pytest.mark.unit
+def test_smooth_elevation_window_below_three_is_a_usage_error(tmp_path: Path) -> None:
+    issues = validate(
+        _two_sequential(), _settings(tmp_path / "out.gpx", smooth_elevation=1)
+    )
+    assert any(issue.code == EXIT_USAGE for issue in issues)
+
+
+@pytest.mark.unit
+def test_odd_smooth_elevation_window_has_no_issues(tmp_path: Path) -> None:
+    issues = validate(
+        _two_sequential(), _settings(tmp_path / "out.gpx", smooth_elevation=5)
+    )
+    assert issues == []

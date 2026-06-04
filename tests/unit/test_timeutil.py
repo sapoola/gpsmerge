@@ -9,6 +9,7 @@ import pytest
 from gpsmerge.timeutil import (
     FIT_EPOCH_OFFSET_S,
     fit_timestamp_to_utc,
+    parse_duration,
     parse_time,
     parse_timezone,
     to_epoch_seconds,
@@ -142,3 +143,60 @@ def test_parse_timezone_raises_value_error_on_garbage() -> None:
 def test_parse_timezone_raises_value_error_on_empty_spec() -> None:
     with pytest.raises(ValueError):
         parse_timezone("   ")
+
+
+# --- parse_duration ------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_parse_duration_hours_unit_with_explicit_plus() -> None:
+    assert parse_duration("+1h") == timedelta(hours=1)
+
+
+@pytest.mark.unit
+def test_parse_duration_minutes_unit_negates_with_leading_minus() -> None:
+    assert parse_duration("-30m") == timedelta(minutes=-30)
+
+
+@pytest.mark.unit
+def test_parse_duration_seconds_unit_without_a_sign() -> None:
+    assert parse_duration("90s") == timedelta(seconds=90)
+
+
+@pytest.mark.unit
+def test_parse_duration_accepts_a_decimal_value() -> None:
+    assert parse_duration("45.5s") == timedelta(seconds=45.5)
+
+
+@pytest.mark.unit
+def test_parse_duration_clock_form_hours_minutes_seconds() -> None:
+    assert parse_duration("+1:30:00") == timedelta(hours=1, minutes=30)
+
+
+@pytest.mark.unit
+def test_parse_duration_clock_form_minutes_seconds_negated() -> None:
+    assert parse_duration("-0:02:30") == timedelta(minutes=-2, seconds=-30)
+
+
+@pytest.mark.unit
+def test_parse_duration_clock_form_bare_minutes_seconds() -> None:
+    assert parse_duration("2:30") == timedelta(minutes=2, seconds=30)
+
+
+@pytest.mark.unit
+def test_parse_duration_raises_value_error_on_garbage() -> None:
+    with pytest.raises(ValueError):
+        parse_duration("soon")
+
+
+@pytest.mark.unit
+def test_parse_duration_raises_value_error_on_a_bare_number() -> None:
+    # A unit is required for the single-value form.
+    with pytest.raises(ValueError):
+        parse_duration("90")
+
+
+@pytest.mark.unit
+def test_parse_duration_raises_value_error_on_empty_spec() -> None:
+    with pytest.raises(ValueError):
+        parse_duration("   ")

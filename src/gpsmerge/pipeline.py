@@ -26,7 +26,13 @@ from gpsmerge.geo import cumulative_distance, haversine
 from gpsmerge.merge import append, detect_mode, stack
 from gpsmerge.model import Activity, TrackPoint
 from gpsmerge.read import read
-from gpsmerge.timeutil import parse_timezone
+from gpsmerge.timeutil import parse_duration, parse_time, parse_timezone
+from gpsmerge.transforms import (
+    insert_stopped_time,
+    shift_time,
+    smooth_elevation,
+    trim,
+)
 from gpsmerge.validate import validate
 from gpsmerge.write import write
 
@@ -142,6 +148,7 @@ def run(settings: Settings) -> RunResult:
     merged = (
         stack(activities, settings) if mode == "stack" else append(activities, settings)
     )
+    merged = _apply_transforms(merged, settings)
     points = list(merged.points())
     if not points:
         return RunResult(
@@ -164,6 +171,40 @@ def run(settings: Settings) -> RunResult:
         )
 
     return RunResult(issues=[], preview=preview, output=settings.output, written=True)
+
+
+def _apply_transforms(activity: Activity, settings: Settings) -> Activity:
+    """Apply the requested post-merge adjustments, in a fixed order.
+
+    The order matters: trim first (it re-bases distance and shrinks the track),
+    then shift the clock, then split long gaps into pauses, then smooth elevation.
+    Validation has already checked every spec parses, so the parses here cannot
+    fail. Each step is skipped when its option is off, so an untouched merge is
+    returned unchanged.
+
+    Parameters
+    ----------
+    activity : Activity
+        The freshly merged activity.
+    settings : Settings
+        The merge options carrying the transform choices.
+
+    Returns
+    -------
+    Activity
+        The adjusted activity (the same object when nothing was requested).
+    """
+    if settings.trim_start is not None or settings.trim_end is not None:
+        start = parse_time(settings.trim_start) if settings.trim_start else None
+        end = parse_time(settings.trim_end) if settings.trim_end else None
+        activity = trim(activity, start, end)
+    if settings.shift is not None:
+        activity = shift_time(activity, parse_duration(settings.shift))
+    if settings.insert_stopped_time:
+        activity = insert_stopped_time(activity, settings.stopped_time_threshold_s)
+    if settings.smooth_elevation is not None:
+        activity = smooth_elevation(activity, settings.smooth_elevation)
+    return activity
 
 
 def _build_preview(activity: Activity, timezone: str | None) -> Preview:

@@ -334,6 +334,60 @@ def test_run_rejects_an_unparseable_timezone(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_run_trim_flags_reduce_the_point_count(tmp_path: Path) -> None:
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(a),
+            str(b),
+            "--out",
+            str(output),
+            "--json",
+            "--trim-start",
+            "2026-06-04T08:00:00Z",
+            "--trim-end",
+            "2026-06-04T08:00:10Z",
+        ],
+    )
+
+    assert result.exit_code == 0
+    summary = json.loads(result.stdout)
+    assert summary["points"] == 2  # only the first recording's two points survive
+
+
+@pytest.mark.unit
+def test_run_shift_moves_the_preview_start_time(tmp_path: Path) -> None:
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(
+        app,
+        ["run", str(a), str(b), "--out", str(output), "--json", "--shift", "+1h"],
+    )
+
+    assert result.exit_code == 0
+    summary = json.loads(result.stdout)
+    assert summary["start_utc"] == "2026-06-04T09:00:00+00:00"
+
+
+@pytest.mark.unit
+def test_run_rejects_an_unparseable_shift(tmp_path: Path) -> None:
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(
+        app, ["run", str(a), str(b), "--out", str(output), "--shift", "soon"]
+    )
+
+    assert result.exit_code == EXIT_USAGE
+    assert not output.exists()
+
+
+@pytest.mark.unit
 def test_run_device_from_attributes_the_chosen_input(tmp_path: Path) -> None:
     a, b = _two_sequential_files(tmp_path)
     output = tmp_path / "out.gpx"

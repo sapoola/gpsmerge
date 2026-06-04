@@ -22,9 +22,12 @@ from gpsmerge.errors import (
     Issue,
 )
 from gpsmerge.model import Activity
-from gpsmerge.timeutil import parse_timezone
+from gpsmerge.timeutil import parse_duration, parse_time, parse_timezone
 
 MIN_INPUTS_TO_MERGE = 2
+
+# A smoothing window must be odd (centred) and at least this wide (so it averages).
+MIN_SMOOTH_WINDOW = 3
 
 
 def validate(activities: list[Activity], settings: Settings) -> list[Issue]:
@@ -56,6 +59,9 @@ def validate(activities: list[Activity], settings: Settings) -> list[Issue]:
     if not issues:  # overlap can only be judged once every file has times
         issues.extend(_check_mode_vs_overlap(activities, settings.mode))
     issues.extend(_check_timezone(settings.timezone))
+    issues.extend(_check_shift(settings.shift))
+    issues.extend(_check_trim(settings.trim_start, settings.trim_end))
+    issues.extend(_check_smooth_elevation(settings.smooth_elevation))
     issues.extend(_check_gpx_needs_position(activities, settings.output_format))
     if not settings.dry_run:  # a dry run writes nothing, so the output path is moot
         issues.extend(_check_output_path(settings.output, settings.assume_yes))
@@ -101,6 +107,70 @@ def _check_timezone(timezone: str | None) -> list[Issue]:
                 EXIT_USAGE,
                 f"could not understand timezone {timezone!r}; "
                 "use e.g. 'Europe/Amsterdam' or '+02:00'",
+            )
+        ]
+    return []
+
+
+def _check_shift(shift: str | None) -> list[Issue]:
+    """Flag a ``--shift`` duration the transform cannot parse."""
+    if shift is None:
+        return []
+    try:
+        parse_duration(shift)
+    except ValueError:
+        return [
+            Issue(
+                EXIT_USAGE,
+                f"could not understand shift {shift!r}; "
+                "use e.g. '+1h', '-30m', '90s', or '+1:30:00'",
+            )
+        ]
+    return []
+
+
+def _check_trim(trim_start: str | None, trim_end: str | None) -> list[Issue]:
+    """Flag an unparseable trim bound, or a start that is not before the end."""
+    issues: list[Issue] = []
+    start = _parsed_bound(trim_start, "--trim-start", issues)
+    end = _parsed_bound(trim_end, "--trim-end", issues)
+    if start is not None and end is not None and start >= end:
+        issues.append(
+            Issue(
+                EXIT_USAGE,
+                f"--trim-start ({trim_start}) must be before --trim-end ({trim_end})",
+            )
+        )
+    return issues
+
+
+def _parsed_bound(value: str | None, flag: str, issues: list[Issue]) -> datetime | None:
+    """Parse a trim bound, appending a usage issue (and returning None) if it fails."""
+    if value is None:
+        return None
+    try:
+        return parse_time(value)
+    except ValueError:
+        issues.append(
+            Issue(
+                EXIT_USAGE,
+                f"could not understand {flag} {value!r}; use an ISO time like "
+                "'2026-06-04T08:30:00Z'",
+            )
+        )
+        return None
+
+
+def _check_smooth_elevation(window: int | None) -> list[Issue]:
+    """Flag a smoothing window that is not an odd integer of at least 3."""
+    if window is None:
+        return []
+    if window < MIN_SMOOTH_WINDOW or window % 2 == 0:
+        return [
+            Issue(
+                EXIT_USAGE,
+                f"--smooth-elevation must be an odd integer >= {MIN_SMOOTH_WINDOW}, "
+                f"got {window}",
             )
         ]
     return []
