@@ -1,20 +1,24 @@
 """Command-line entry point for gpsmerge.
 
-Bare ``gpsmerge`` will launch a guided wizard in a later milestone; for now the
-useful command is ``gpsmerge run``, which merges files non-interactively. Every
-flag maps onto a single :class:`~gpsmerge.config.Settings`, the pipeline does the
-work, and this module only turns the result into text (or JSON) and an exit code.
+Bare ``gpsmerge`` in a terminal launches the guided wizard (see
+:mod:`gpsmerge.wizard`); piped or in CI it prints a hint instead, so
+non-interactive use never hangs. The ``run`` command merges files
+non-interactively: every flag maps onto a single
+:class:`~gpsmerge.config.Settings`, the pipeline does the work, and this module
+only turns the result into text (or JSON) and an exit code. ``examples`` and
+``formats`` print quick reference for people new to the tool.
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import typer
 from pydantic import ValidationError
 
-from gpsmerge import __version__
+from gpsmerge import __version__, wizard
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
 from gpsmerge.pipeline import RunResult
@@ -47,11 +51,16 @@ def main_callback(
     ),
 ) -> None:
     """Combine GPS activity files offline."""
-    if ctx.invoked_subcommand is None:
-        typer.echo(
-            "Nothing to do. Try 'gpsmerge run --help' to merge files; "
-            "the guided wizard arrives in a later version."
-        )
+    if ctx.invoked_subcommand is not None:
+        return
+    # In a terminal, bare 'gpsmerge' is the headline experience: the wizard.
+    # Piped or in CI (no TTY), never block on prompts -- just point the way.
+    if sys.stdin.isatty():
+        raise typer.Exit(wizard.run())
+    typer.echo(
+        "Nothing to do. Run 'gpsmerge' in a terminal for the guided wizard, "
+        "or 'gpsmerge run --help' to merge files directly."
+    )
 
 
 @app.command()
@@ -61,6 +70,9 @@ def run(
     ),
     output: Path = typer.Option(
         ..., "--out", "-o", help="Where to write the merged file."
+    ),
+    output_format: str = typer.Option(
+        "gpx", "--format", help="Output format: 'gpx' or 'tcx'."
     ),
     mode: str = typer.Option(
         "auto",
@@ -134,6 +146,7 @@ def run(
             {
                 "inputs": inputs,
                 "output": output,
+                "output_format": output_format,
                 "mode": mode,
                 "max_gap_s": max_gap_seconds,
                 "position_from": position_from,
@@ -159,6 +172,41 @@ def run(
     result = run_pipeline(settings)
     _report(result, json_output)
     raise typer.Exit(result.issues[0].code if result.issues else 0)
+
+
+@app.command()
+def examples() -> None:
+    """Print copy-pasteable example commands."""
+    typer.echo("Examples (replace the paths with your own files):")
+    typer.echo("")
+    typer.echo("  # Append: a ride split across two recordings, into one GPX")
+    typer.echo("  gpsmerge run morning.gpx evening.gpx --out ride.gpx")
+    typer.echo("")
+    typer.echo("  # Stack: GPS from a watch, power and HR from a trainer")
+    typer.echo(
+        "  gpsmerge run watch.gpx trainer.tcx --mode stack \\\n"
+        "    --position-from watch.gpx --power-from trainer.tcx --out ride.gpx"
+    )
+    typer.echo("")
+    typer.echo("  # Auto: let gpsmerge decide whether to append or stack")
+    typer.echo("  gpsmerge run a.gpx b.gpx --out merged.gpx")
+    typer.echo("")
+    typer.echo("  # Preview only, no file written")
+    typer.echo("  gpsmerge run a.gpx b.gpx --out merged.gpx --dry-run")
+
+
+@app.command()
+def formats() -> None:
+    """Print the supported formats and which channels each carries."""
+    typer.echo("Supported formats:")
+    typer.echo("  read:  gpx, tcx")
+    typer.echo("  write: gpx, tcx")
+    typer.echo("")
+    typer.echo("Channels carried by each format:")
+    typer.echo("  gpx: position, elevation, hr, cadence, power, temperature, speed")
+    typer.echo("  tcx: position, elevation, hr, cadence, power, speed (no temperature)")
+    typer.echo("")
+    typer.echo("Note: TCX has no temperature channel; it is dropped on write.")
 
 
 def _report(result: RunResult, json_output: bool) -> None:

@@ -26,6 +26,8 @@ class Settings(BaseModel):
         The files to merge, in the order the user gave them.
     output : Path
         Where to write the merged file.
+    output_format : {"gpx", "tcx"}
+        The format to write.
     mode : {"auto", "append", "stack"}
         How to combine the files. ``"append"`` joins sequential recordings;
         ``"stack"`` overlays recordings of the same ride, taking a different
@@ -67,6 +69,7 @@ class Settings(BaseModel):
 
     inputs: list[Path]
     output: Path
+    output_format: Literal["gpx", "tcx"] = "gpx"
     mode: Literal["auto", "append", "stack"] = "auto"
     max_gap_s: float = 10.0
     position_from: Path | None = None

@@ -25,8 +25,30 @@ def test_version_flag_prints_version_and_exits() -> None:
 
 @pytest.mark.unit
 def test_bare_invocation_succeeds() -> None:
+    # The CliRunner's stdin is not a TTY, so bare invocation prints the hint
+    # and exits 0 without launching (or hanging on) the wizard.
     result = runner.invoke(app, [])
     assert result.exit_code == 0
+    assert "guided wizard" in result.output
+
+
+@pytest.mark.unit
+def test_examples_command_prints_real_commands() -> None:
+    result = runner.invoke(app, ["examples"])
+    assert result.exit_code == 0
+    assert "gpsmerge run" in result.output
+    assert "--mode stack" in result.output
+    assert "--power-from" in result.output
+
+
+@pytest.mark.unit
+def test_formats_command_lists_formats_and_channels() -> None:
+    result = runner.invoke(app, ["formats"])
+    assert result.exit_code == 0
+    assert "gpx" in result.output
+    assert "tcx" in result.output
+    assert "no temperature" in result.output
+    assert "power" in result.output
 
 
 # --- the 'run' command ---------------------------------------------------

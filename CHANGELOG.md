@@ -22,3 +22,6 @@ All notable changes to this project are documented here. The format is based on 
 - Per-channel source selection for stacking (`--position-from`, `--hr-from`, `--cadence-from`, `--power-from`, `--temp-from`) and `--max-gap-seconds`, with multi-source fallback and whole-number rounding of heart rate / cadence / power.
 - Automatic mode detection (`--mode auto`, the default): stack vs append chosen from how much the recordings overlap; a genuinely ambiguous overlap asks you to pick.
 - `docs/merge-algorithms.md` extended with the stacking and auto-mode sections.
+- TCX (Garmin Training Center XML) reading and writing: gpsmerge now reads GPX or TCX and writes GPX or TCX (`--format tcx`). Temperature has no place in TCX and is dropped on write (documented).
+- Interactive guided wizard: running `gpsmerge` with no arguments in a terminal walks you through choosing files, mode, per-channel and device sources, output format, and a sanity-checked preview before writing. Piped or in CI it prints a hint instead, so it never hangs.
+- `gpsmerge examples` and `gpsmerge formats` quick-reference commands, and `docs/wizard.md`.

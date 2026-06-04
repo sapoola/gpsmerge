@@ -7,10 +7,10 @@ gpsmerge reads and writes activity files. There are three formats you will meet 
 | Format | Shape | gpsmerge today |
 | ------ | ----- | -------------- |
 | GPX    | XML text | reads and writes |
-| TCX    | XML text | reading comes later |
+| TCX    | XML text | reads and writes |
 | FIT    | binary | reading comes later |
 
-Today gpsmerge **reads GPX** and **writes GPX**. TCX and FIT reading are planned for later milestones; the data model already has room for them (it even carries a `source_format` of `"gpx"`, `"tcx"`, or `"fit"`), but only GPX is wired up right now.
+Today gpsmerge **reads and writes GPX and TCX**. FIT reading is planned for a later milestone; the data model already has room for it (it carries a `source_format` of `"gpx"`, `"tcx"`, or `"fit"`), but FIT is not wired up yet.
 
 ## GPX — the lingua franca
 
@@ -36,11 +36,11 @@ TCX (Training Center XML) is Garmin's older XML format. Like GPX it is human-rea
 
 A TCX file is built from laps. An activity contains one or more `<Lap>` elements, and the actual trackpoints live *inside* a lap, under a `<Track>`. So where GPX gives you "here are the points", TCX gives you "here are the laps, and each lap contains its points". You cannot have a trackpoint that belongs to no lap — the lap structure is mandatory.
 
-TCX stores the fitness channels more directly than GPX: heart rate, cadence, and (via its own activity extensions) power have defined places in the schema, so you do not have to hunt through namespaced extensions the way GPX makes you. There is one notable gap: **TCX has no temperature field.** If a ride's temperature matters to you, TCX will lose it.
+TCX stores the fitness channels more directly than GPX: heart rate, cadence, and distance have defined places in the core schema, so you do not have to hunt through namespaced extensions the way GPX makes you. Power and instantaneous speed live in Garmin's ActivityExtension (`TPX`) namespace — `Watts` and `Speed` — which gpsmerge reads and writes. There is one notable gap: **TCX has no temperature field.** If a ride's temperature matters to you, TCX will lose it.
 
-TCX also records a `<Creator>` element naming the recording device, which is the TCX equivalent of GPX's `creator` attribute.
+TCX also records a `<Creator>` element naming the recording device, which is the TCX equivalent of GPX's `creator` attribute; gpsmerge reads and writes the device name, and the unit id and product id when present.
 
-gpsmerge does not read TCX yet — that is a later milestone. When it does, the lap structure will be flattened into the shared model's points and the missing-temperature gap will simply show up as `None` temperature, which is exactly how the model represents any absent channel.
+gpsmerge **reads and writes TCX**. On read the mandatory lap structure is flattened into the shared model: every `<Track>` (across all laps, in order) becomes a segment, so a pause between tracks survives as a segment boundary. On write gpsmerge emits a single lap — it does not model laps yet — containing one `<Track>` per segment, so those pauses are preserved. The one documented loss is temperature: because TCX has no field for it, `temp` is dropped on write and reads back as `None`, exactly how the model represents any absent channel.
 
 ## FIT — compact, binary, and everywhere on real devices
 

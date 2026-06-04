@@ -12,6 +12,7 @@ from pathlib import Path
 from gpsmerge.errors import UnsupportedFormat
 from gpsmerge.gpx import write_gpx
 from gpsmerge.model import Activity
+from gpsmerge.tcx import write_tcx
 
 
 def write(activity: Activity, path: Path, output_format: str) -> None:
@@ -24,8 +25,8 @@ def write(activity: Activity, path: Path, output_format: str) -> None:
     path : Path
         Destination file path; overwritten if it exists.
     output_format : str
-        The format to write. Today only ``"gpx"`` is supported; ``"tcx"``
-        arrives in a later milestone.
+        The format to write. Today ``"gpx"`` and ``"tcx"`` are supported;
+        ``"fit"`` arrives in a later milestone.
 
     Raises
     ------
@@ -34,5 +35,8 @@ def write(activity: Activity, path: Path, output_format: str) -> None:
     """
     if output_format == "gpx":
         write_gpx(activity, path)
+        return
+    if output_format == "tcx":
+        write_tcx(activity, path)
         return
     raise UnsupportedFormat(f"cannot write {output_format!r} yet")

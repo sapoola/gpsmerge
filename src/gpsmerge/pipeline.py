@@ -32,8 +32,6 @@ from gpsmerge.write import write
 # gap, so a person sees it before trusting the merged distance.
 SEAM_JUMP_WARN_M = 250.0
 
-OUTPUT_FORMAT = "gpx"  # M2 writes GPX; the format choice arrives with TCX.
-
 
 @dataclass(slots=True)
 class Preview:
@@ -142,7 +140,7 @@ def run(settings: Settings) -> RunResult:
         )
 
     try:
-        write(merged, settings.output, OUTPUT_FORMAT)
+        write(merged, settings.output, settings.output_format)
     except OSError as exc:
         return RunResult(
             issues=[Issue(EXIT_WRITE, f"could not write {settings.output}: {exc}")],
