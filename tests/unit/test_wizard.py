@@ -197,7 +197,7 @@ def test_append_two_sequential_files_writes_a_merged_gpx(
             "gpx",  # output format
         ],
         path=[str(a), str(b), "", str(output)],  # two files, blank to finish, output
-        text=["", ""],  # timezone (skip), sport (keep source)
+        text=["", "", ""],  # timezone (skip), sport (keep source), profile (skip)
         confirm=[
             False,  # ignore big gaps?
             True,  # apply standard clean-up
@@ -237,7 +237,7 @@ def test_timezone_answer_reaches_the_pipeline_run(
     _ScriptedPrompts(
         select=["append", "pause", "Garmin Edge 530", "gpx"],
         path=[str(a), str(b), "", str(output)],
-        text=["Europe/Amsterdam", ""],  # timezone, then sport (skip)
+        text=["Europe/Amsterdam", "", ""],  # timezone, sport (skip), profile (skip)
         confirm=[False, True, True],  # big gaps, clean-up, write it
     ).install(monkeypatch)
 
@@ -265,7 +265,7 @@ def test_stack_two_overlapping_files_borrows_the_sensor_channel(
             "gpx",  # output format
         ],
         path=[str(gps), str(sensor), "", str(output)],
-        text=["", ""],  # timezone (skip), sport (keep source)
+        text=["", "", ""],  # timezone (skip), sport (keep source), profile (skip)
         confirm=[
             True,  # apply standard clean-up
             True,  # write it?
@@ -299,7 +299,7 @@ def test_contradicting_mode_choice_is_recovered_not_crashed(
             "gpx",  # format
         ],
         path=[str(a), str(b), "", str(output)],
-        text=["", ""],  # timezone (skip), sport (keep source)
+        text=["", "", ""],  # timezone (skip), sport (keep source), profile (skip)
         confirm=[
             False,  # ignore big gaps?
             True,  # clean-up
@@ -330,7 +330,7 @@ def test_existing_output_path_overwrite_is_honoured(
             "overwrite",  # the existing-file choice
         ],
         path=[str(a), str(b), "", str(output)],
-        text=["", ""],  # timezone (skip), sport (keep source)
+        text=["", "", ""],  # timezone (skip), sport (keep source), profile (skip)
         confirm=[
             False,  # ignore big gaps?
             True,  # clean-up
@@ -358,7 +358,7 @@ def test_fewer_than_two_files_then_blank_keeps_prompting(
     _ScriptedPrompts(
         select=["append", "pause", "Garmin Edge 530", "gpx"],
         path=["", str(a), str(b), "", str(output)],  # leading blank ignored
-        text=["", ""],  # timezone (skip), sport (skip)
+        text=["", "", ""],  # timezone (skip), sport (skip), profile (skip)
         confirm=[False, True, True],
     ).install(monkeypatch)
 
@@ -380,7 +380,7 @@ def test_nonexistent_then_valid_path_is_reprompted(
         select=["append", "pause", "Garmin Edge 530", "gpx"],
         # First path does not exist: rejected and re-prompted.
         path=[str(missing), str(a), str(b), "", str(output)],
-        text=["", ""],  # timezone (skip), sport (skip)
+        text=["", "", ""],  # timezone (skip), sport (skip), profile (skip)
         confirm=[False, True, True],
     ).install(monkeypatch)
 
@@ -425,3 +425,35 @@ def test_cancelling_at_a_prompt_returns_usage_exit_code(
     code = wizard.run()
 
     assert code != 0
+
+
+@pytest.mark.unit
+def test_naming_a_profile_at_the_end_saves_the_general_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The final prompt names a profile; the wizard saves the merge's general,
+    # file-independent settings under it (not the inputs or the output path).
+    from gpsmerge import profiles
+
+    home = tmp_path / "profiles"
+    monkeypatch.setattr(wizard.profiles, "profiles_dir", lambda: home)
+
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "merged.gpx"
+
+    _ScriptedPrompts(
+        select=["append", "pause", "Garmin Edge 530", "gpx"],
+        path=[str(a), str(b), "", str(output)],
+        # timezone, sport (skip), then a profile name at the final prompt.
+        text=["Europe/Amsterdam", "", "commute"],
+        confirm=[False, True, True],  # big gaps, clean-up, write it
+    ).install(monkeypatch)
+
+    code = wizard.run()
+
+    assert code == 0
+    saved = profiles.load_profile("commute", base=home)
+    assert saved["timezone"] == "Europe/Amsterdam"
+    assert saved["mode"] == "append"
+    assert "inputs" not in saved
+    assert "output" not in saved

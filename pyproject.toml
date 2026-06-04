@@ -20,6 +20,8 @@ dependencies = [
     "gpxpy>=1.6.0",
     "lxml>=5.0.0",
     "fitdecode>=0.11.0",
+    "tomli-w (>=1.0)",
+    "platformdirs (>=4.0)",
 ]
 
 [dependency-groups]

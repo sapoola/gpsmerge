@@ -31,3 +31,5 @@ All notable changes to this project are documented here. The format is based on 
 - `xsi:schemaLocation` on written GPX and TCX roots, pointing at the resolvable Garmin/topografix schema documents, matching real Garmin output.
 - Indoor (no-GPS) merges now work: the recorded distance is kept instead of being zeroed by a recompute that had no positions, and when no file has GPS the data-richer file becomes the master (so its timeline and distance are kept) regardless of input order.
 - Writing a position-less (indoor) activity to GPX is refused with guidance to use `--format tcx`, since GPX trackpoints require coordinates and cannot store distance.
+- FIT device names are tidied for display (e.g. `stages_cycling 1` becomes `Stages Cycling`, `garmin edge_530` becomes `Garmin Edge 530`); the raw manufacturer/product values are kept for fidelity.
+- Config profiles: save the general, file-independent settings you chose with `--save-profile <name>` (or from the wizard) and reuse them with `--profile <name>`; manage them with `gpsmerge profile list|show|rm`. A profile never stores input/output paths, and an explicit flag always overrides a profile.

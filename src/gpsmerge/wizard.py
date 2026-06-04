@@ -25,6 +25,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from gpsmerge import profiles
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
 from gpsmerge.merge import detect_mode
@@ -665,7 +666,30 @@ def _preview_then_write(settings: Settings) -> int:
         return final.issues[0].code
 
     _console.print(f"[green]Wrote {final.output}[/green]")
+    _offer_save_profile(settings)
     return 0
+
+
+def _offer_save_profile(settings: Settings) -> None:
+    """Offer to save this merge's general settings as a reusable profile.
+
+    A blank answer skips silently; a name saves the file-independent settings so
+    the next merge can pass ``--profile <name>`` instead of retyping the flags.
+    """
+    # Raw .ask() (not the _Cancelled-raising _ask): this is the last, optional
+    # step, so a cancel here should just skip saving, which the guard below does.
+    name = questionary.text(
+        "Save these settings as a profile? (name, or Enter to skip)",
+        default="",
+    ).ask()
+    if not name or not name.strip():
+        return
+    try:
+        path = profiles.save_profile(name.strip(), profiles.from_settings(settings))
+    except ValueError as exc:
+        _console.print(f"[yellow]Did not save the profile: {exc}[/yellow]")
+        return
+    _console.print(f"[green]Saved profile '{name.strip()}' to {path}[/green]")
 
 
 def _safe_confirm(message: str, *, default: bool) -> bool:
