@@ -12,6 +12,7 @@ from gpsmerge.geo import (
     cumulative_distance,
     degrees_to_semicircles,
     haversine,
+    parse_distance,
     semicircles_to_degrees,
 )
 from gpsmerge.model import TrackPoint
@@ -152,3 +153,71 @@ def test_positive_180_clamps_to_int32_max_without_overflow() -> None:
 def test_negative_180_clamps_to_int32_min() -> None:
     semicircles = degrees_to_semicircles(-180.0)
     assert semicircles == -(2**31)
+
+
+# --- parse_distance ------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_parse_distance_kilometres() -> None:
+    assert parse_distance("1km") == 1000.0
+
+
+@pytest.mark.unit
+def test_parse_distance_metres() -> None:
+    assert parse_distance("500m") == 500.0
+
+
+@pytest.mark.unit
+def test_parse_distance_bare_number_is_metres() -> None:
+    assert parse_distance("1000") == 1000.0
+
+
+@pytest.mark.unit
+def test_parse_distance_miles() -> None:
+    assert parse_distance("1mi") == 1609.344
+
+
+@pytest.mark.unit
+def test_parse_distance_fractional_miles() -> None:
+    assert parse_distance("0.5mi") == pytest.approx(804.672)
+
+
+@pytest.mark.unit
+def test_parse_distance_fractional_kilometres() -> None:
+    assert parse_distance("2.5km") == 2500.0
+
+
+@pytest.mark.unit
+def test_parse_distance_is_case_insensitive_and_trims_space() -> None:
+    assert parse_distance("  1KM  ") == 1000.0
+
+
+@pytest.mark.unit
+def test_parse_distance_allows_a_space_before_the_unit() -> None:
+    assert parse_distance("500 m") == 500.0
+
+
+@pytest.mark.unit
+def test_parse_distance_rejects_an_unknown_unit() -> None:
+    with pytest.raises(ValueError):
+        parse_distance("1furlong")
+
+
+@pytest.mark.unit
+def test_parse_distance_rejects_an_empty_spec() -> None:
+    with pytest.raises(ValueError):
+        parse_distance("   ")
+
+
+@pytest.mark.unit
+def test_parse_distance_rejects_zero() -> None:
+    with pytest.raises(ValueError):
+        parse_distance("0km")
+
+
+@pytest.mark.unit
+def test_parse_distance_rejects_a_negative_value() -> None:
+    # The leading minus is not part of the number pattern, so it is rejected.
+    with pytest.raises(ValueError):
+        parse_distance("-1km")

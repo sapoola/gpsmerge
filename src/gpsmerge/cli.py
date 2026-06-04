@@ -23,6 +23,7 @@ from rich.console import Console
 from gpsmerge import __version__, profiles, wizard
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
+from gpsmerge.geo import parse_distance
 from gpsmerge.pipeline import RunResult
 from gpsmerge.pipeline import run as run_pipeline
 from gpsmerge.timeutil import local_range, utc_range, zone_label
@@ -57,6 +58,16 @@ def _warn_experimental_fit() -> None:
     _err_console.print(
         "FIT writing is experimental and best-effort; verify the file imports "
         "before relying on it.",
+        style="yellow",
+    )
+
+
+def _warn_beta_workout() -> None:
+    """Warn on stderr that workout detection is a best-effort BETA heuristic."""
+    _err_console.print(
+        "Workout detection is BETA and a best-effort heuristic; it shines on "
+        "structured interval workouts and is rougher on smooth ramps and "
+        "unstructured rides. Sanity-check the laps before relying on them.",
         style="yellow",
     )
 
@@ -270,6 +281,30 @@ def run(
         "becomes a pause.",
         rich_help_panel="Transforms",
     ),
+    auto_lap: str | None = typer.Option(
+        None,
+        "--auto-lap",
+        help="Re-lap into even distance splits, replacing any source laps, e.g. "
+        "'1km', '500m', '0.5mi', or '1mi'. (GPX has no laps and drops them.)",
+        rich_help_panel="Transforms",
+    ),
+    detect_workout: bool = typer.Option(
+        False,
+        "--detect-workout",
+        help="BETA: auto-detect a structured interval workout from the effort "
+        "channel (power for rides, speed for runs, chosen automatically) and "
+        "write it as laps plus a summary. Needs the 'workout' extra (numpy). "
+        "Replaces any source laps; not combinable with --auto-lap.",
+        rich_help_panel="Workout (beta)",
+    ),
+    workout_min_seconds: float = typer.Option(
+        10.0,
+        "--workout-min-seconds",
+        help="With --detect-workout, the shortest interval to report: shorter "
+        "segments are merged into a neighbour. Raise it for a coarser overlay "
+        "(fewer, longer intervals); lower it to keep brief efforts.",
+        rich_help_panel="Workout (beta)",
+    ),
     profile: str | None = typer.Option(
         None,
         "--profile",
@@ -338,9 +373,22 @@ def run(
         )
         raise typer.Exit(EXIT_USAGE)
 
+    # Parse the distance spec to metres up front so a bad value (e.g. "1furlong")
+    # is a clean usage error before any files are read, mirroring how the other
+    # specs are validated. The Settings field stores metres.
+    auto_lap_m: float | None = None
+    if auto_lap is not None:
+        try:
+            auto_lap_m = parse_distance(auto_lap)
+        except ValueError as exc:
+            _error(str(exc))
+            raise typer.Exit(EXIT_USAGE) from exc
+
     resolved = _resolve_profile(ctx, saved, flag_values)
     if resolved["output_format"] == _EXPERIMENTAL_FORMAT:
         _warn_experimental_fit()
+    if detect_workout:
+        _warn_beta_workout()
 
     # A dry run with no --out still needs *some* path for Settings (its output is
     # required), but nothing is written, so a placeholder is harmless and the
@@ -374,6 +422,9 @@ def run(
                 "smooth_elevation": smooth_elevation,
                 "insert_stopped_time": insert_stopped_time,
                 "stopped_time_threshold_s": stopped_time_threshold,
+                "auto_lap_m": auto_lap_m,
+                "detect_workout": detect_workout,
+                "workout_min_seconds": workout_min_seconds,
                 "assume_yes": assume_yes,
                 "dry_run": dry_run,
                 "json_output": json_output,
@@ -508,6 +559,9 @@ def formats() -> None:
     typer.echo("       whole seconds on FIT write, and device attribution is")
     typer.echo("       best-effort.")
     typer.echo("       TCX has no temperature channel; it is dropped on write.")
+    typer.echo("       Workout detection (--detect-workout, BETA) needs the workout")
+    typer.echo("       extra: 'pip install gpsmerge[workout]'. It finds intervals in")
+    typer.echo("       power (rides) or speed (runs) and writes them as laps.")
 
 
 profile_app = typer.Typer(help="Save and reuse general merge settings by name.")
@@ -588,6 +642,8 @@ def _summary(result: RunResult) -> dict[str, object]:
         summary["local_start"] = _iso_or_none(preview.local_start)
         summary["local_end"] = _iso_or_none(preview.local_end)
         summary["timezone"] = preview.timezone_label
+    if preview.workout_summary is not None:
+        summary["workout"] = preview.workout_summary
     return summary
 
 
@@ -621,6 +677,8 @@ def _print_preview(result: RunResult) -> None:
             f"{local_range(preview.local_start, preview.local_end)}  "
             f"({zone_label(preview.timezone_label, preview.local_start)})"
         )
+    if preview.workout_summary is not None:
+        typer.echo(f"  workout:  {preview.workout_summary}  (beta)")
     for warning in preview.warnings:
         _warn(f"  ! {warning}")
 

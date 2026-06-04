@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,10 +12,39 @@ from typer.testing import CliRunner
 
 from gpsmerge import __version__
 from gpsmerge.cli import app
-from gpsmerge.errors import EXIT_MODE_CONFLICT, EXIT_USAGE, EXIT_WRITE
+from gpsmerge.errors import (
+    EXIT_MODE_CONFLICT,
+    EXIT_NO_WORKOUT_DATA,
+    EXIT_USAGE,
+    EXIT_WRITE,
+)
+from gpsmerge.model import Activity, Segment, TrackPoint
 from gpsmerge.read import read
 
 runner = CliRunner()
+
+
+def _write_power_gpx(path: Path, *, start_offset: int, levels: list[int]) -> Path:
+    """Write a sequential GPX carrying one 1 Hz power sample per level.
+
+    ``start_offset`` seconds places the file on the timeline so two files can be
+    appended back-to-back without overlapping. Positions tick along so GPX (which
+    needs a position) is valid.
+    """
+    from gpsmerge.gpx import write_gpx
+
+    base = datetime(2026, 6, 4, 8, 0, 0, tzinfo=UTC)
+    points = [
+        TrackPoint(
+            time=base + timedelta(seconds=start_offset + i),
+            lat=52.0 + (start_offset + i) * 1e-5,
+            lon=4.0,
+            power=level,
+        )
+        for i, level in enumerate(levels)
+    ]
+    write_gpx(Activity(sport="cycling", segments=[Segment(points=points)]), path)
+    return path
 
 
 @pytest.mark.unit
@@ -682,3 +712,218 @@ def test_run_auto_on_partial_overlap_is_a_mode_conflict(tmp_path: Path) -> None:
     result = runner.invoke(app, ["run", str(a), str(b), "--out", str(output)])
 
     assert result.exit_code == EXIT_MODE_CONFLICT
+
+
+# --- the --auto-lap flag -------------------------------------------------
+
+# A GPX track whose points are spaced ~0.01 deg of latitude apart (~1.11 km),
+# so a 1 km auto-lap produces several laps. {trkpts} is filled with the points.
+_GPX_TRACK_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+<gpx creator="{creator}" version="1.1"
+     xmlns="http://www.topografix.com/GPX/1/1">
+ <trk>
+  <type>cycling</type>
+  <trkseg>
+{trkpts}
+  </trkseg>
+ </trk>
+</gpx>
+"""
+
+
+def _write_long_gpx(
+    path: Path, *, creator: str, lat0: float, start_second: int, count: int
+) -> Path:
+    """Write a single-segment GPX of ``count`` points ~1.11 km apart, 60 s each."""
+    base = datetime(2026, 6, 4, 8, 0, 0)
+    rows = []
+    for i in range(count):
+        lat = lat0 + i * 0.01
+        when = (
+            base.replace(second=0) + timedelta(seconds=start_second + i * 60)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rows.append(
+            f'   <trkpt lat="{lat:.5f}" lon="4.00000">\n'
+            f"    <ele>5.0</ele>\n"
+            f"    <time>{when}</time>\n"
+            f"   </trkpt>"
+        )
+    path.write_text(
+        _GPX_TRACK_TEMPLATE.format(creator=creator, trkpts="\n".join(rows)),
+        encoding="utf-8",
+    )
+    return path
+
+
+@pytest.mark.unit
+def test_run_auto_lap_writes_distance_laps_in_a_tcx_round_trip(tmp_path: Path) -> None:
+    # Two sequential ~5.5 km tracks; a 1 km auto-lap should split the ~11 km
+    # merged activity into several laps that survive a TCX round-trip.
+    a = _write_long_gpx(
+        tmp_path / "a.gpx", creator="Device A", lat0=52.0, start_second=0, count=6
+    )
+    b = _write_long_gpx(
+        tmp_path / "b.gpx", creator="Device B", lat0=52.1, start_second=600, count=6
+    )
+    output = tmp_path / "out.tcx"
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(a),
+            str(b),
+            "--out",
+            str(output),
+            "--format",
+            "tcx",
+            "--auto-lap",
+            "1km",
+        ],
+    )
+
+    assert result.exit_code == 0
+    written = read(output)
+    # Several laps were generated, and they round-tripped through TCX.
+    assert len(written.laps) >= 2
+    # Completed laps carry the distance trigger (TCX maps it back to "distance").
+    assert any(lap.trigger == "distance" for lap in written.laps)
+
+
+@pytest.mark.unit
+def test_run_auto_lap_rejects_an_unparseable_distance(tmp_path: Path) -> None:
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+
+    result = runner.invoke(
+        app, ["run", str(a), str(b), "--out", str(output), "--auto-lap", "1furlong"]
+    )
+
+    assert result.exit_code == EXIT_USAGE
+    assert not output.exists()
+
+
+# --- workout detection (beta) -----------------------------------------------
+
+pytest.importorskip("numpy", reason="workout detection needs the numpy extra")
+
+
+@pytest.mark.unit
+def test_run_detect_workout_writes_laps_and_prints_summary(tmp_path: Path) -> None:
+    # Two appended power recordings forming a structured workout: ~300 W then
+    # ~180 W. TCX is written so laps round-trip.
+    a = _write_power_gpx(tmp_path / "a.gpx", start_offset=0, levels=[300] * 120)
+    b = _write_power_gpx(tmp_path / "b.gpx", start_offset=130, levels=[180] * 120)
+    output = tmp_path / "out.tcx"
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(a),
+            str(b),
+            "--out",
+            str(output),
+            "--format",
+            "tcx",
+            "--detect-workout",
+        ],
+    )
+
+    assert result.exit_code == 0
+    # The BETA heads-up goes to stderr.
+    assert "BETA" in result.stderr or "BETA" in result.output
+    # The summary is shown in the preview and is in watts.
+    assert "W" in result.output and "workout" in result.output
+    # Laps were written and round-tripped through TCX.
+    written = read(output)
+    assert len(written.laps) >= 2
+
+
+@pytest.mark.unit
+def test_run_detect_workout_json_carries_the_summary(tmp_path: Path) -> None:
+    a = _write_power_gpx(tmp_path / "a.gpx", start_offset=0, levels=[300] * 120)
+    b = _write_power_gpx(tmp_path / "b.gpx", start_offset=130, levels=[180] * 120)
+    output = tmp_path / "out.tcx"
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(a),
+            str(b),
+            "--out",
+            str(output),
+            "--format",
+            "tcx",
+            "--detect-workout",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert "workout" in payload
+    assert "W" in payload["workout"]
+
+
+@pytest.mark.unit
+def test_run_detect_workout_with_no_effort_data_is_a_clear_error(
+    tmp_path: Path,
+) -> None:
+    # The two-point GPX fixtures carry no power and no speed, so detection has
+    # nothing to work from -> the defined no-workout-data exit code.
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.tcx"
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(a),
+            str(b),
+            "--out",
+            str(output),
+            "--format",
+            "tcx",
+            "--detect-workout",
+        ],
+    )
+
+    assert result.exit_code == EXIT_NO_WORKOUT_DATA
+    assert "no usable power or speed" in result.output + result.stderr
+
+
+@pytest.mark.unit
+def test_run_auto_lap_and_detect_workout_together_is_a_usage_error(
+    tmp_path: Path,
+) -> None:
+    a = _write_power_gpx(tmp_path / "a.gpx", start_offset=0, levels=[300] * 120)
+    b = _write_power_gpx(tmp_path / "b.gpx", start_offset=130, levels=[180] * 120)
+    output = tmp_path / "out.tcx"
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(a),
+            str(b),
+            "--out",
+            str(output),
+            "--format",
+            "tcx",
+            "--auto-lap",
+            "1km",
+            "--detect-workout",
+        ],
+    )
+
+    assert result.exit_code == EXIT_USAGE
+    assert "both set laps" in result.output + result.stderr
+
+
+@pytest.mark.unit
+def test_run_help_lists_the_workout_beta_panel() -> None:
+    result = runner.invoke(app, ["run", "--help"])
+    assert result.exit_code == 0
+    assert "Workout (beta)" in result.output

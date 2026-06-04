@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from gpsmerge.errors import TransformError
+from gpsmerge.geo import EARTH_RADIUS_M
 from gpsmerge.model import Activity, Lap, Segment, TrackPoint
 from gpsmerge.transforms import (
+    auto_lap,
     insert_stopped_time,
+    laps_from_boundaries,
     shift_time,
     smooth_elevation,
     trim,
@@ -478,3 +483,227 @@ def test_smooth_elevation_window_crosses_a_segment_boundary() -> None:
     eles = [p.ele for p in smoothed.points()]
     # Segment 1's last point averages with segment 2's first point (100) -> 40.
     assert eles[1] == pytest.approx(40.0)
+
+
+# --- auto_lap ------------------------------------------------------------
+
+# A degree of latitude is this many metres along a meridian (same fixed sphere
+# the geo helpers use), so points one degree apart in latitude are this far apart.
+_METRES_PER_DEGREE_LATITUDE = EARTH_RADIUS_M * math.pi / 180.0
+
+
+def _lap_triggers(activity: Activity) -> list[str | None]:
+    """Return each lap's trigger in order."""
+    return [lap.trigger for lap in activity.laps]
+
+
+@pytest.mark.unit
+def test_auto_lap_splits_on_even_distance_boundaries() -> None:
+    # Six points at 0, 400, 800, ... 2000 m, one per 10 s. A 1000 m interval
+    # should close a lap at the first point reaching 1000 m (1200 m, t=30) and at
+    # the first reaching 2000 m (2000 m, t=50), leaving no leftover.
+    points = [_at(i * 10, distance=i * 400.0) for i in range(6)]
+    activity = _activity(points)
+
+    relapped = auto_lap(activity, interval_m=1000.0)
+
+    assert _lap_offsets(relapped) == [(0, 30), (30, 50)]
+    assert _lap_triggers(relapped) == ["distance", "distance"]
+
+
+@pytest.mark.unit
+def test_auto_lap_final_partial_lap_is_session_end() -> None:
+    # Points to 2500 m: the 1 km and 2 km marks close distance laps, and the
+    # leftover 2000..2500 m is the final session-end lap.
+    points = [_at(i * 10, distance=i * 500.0) for i in range(6)]  # 0..2500 m
+    activity = _activity(points)
+
+    relapped = auto_lap(activity, interval_m=1000.0)
+
+    # 1000 m first reached at i=2 (t=20); 2000 m at i=4 (t=40); end at t=50.
+    assert _lap_offsets(relapped) == [(0, 20), (20, 40), (40, 50)]
+    assert _lap_triggers(relapped) == ["distance", "distance", "session_end"]
+
+
+@pytest.mark.unit
+def test_auto_lap_shorter_than_one_interval_is_a_single_lap() -> None:
+    # Total distance 600 m never reaches the 1 km mark: one whole-activity lap.
+    points = [_at(0, distance=0.0), _at(10, distance=300.0), _at(20, distance=600.0)]
+    activity = _activity(points)
+
+    relapped = auto_lap(activity, interval_m=1000.0)
+
+    assert _lap_offsets(relapped) == [(0, 20)]
+    assert _lap_triggers(relapped) == ["session_end"]
+
+
+@pytest.mark.unit
+def test_auto_lap_replaces_existing_laps() -> None:
+    points = [_at(i * 10, distance=i * 500.0) for i in range(5)]  # 0..2000 m
+    activity = _activity(points)
+    activity.laps = [_lap(0, 40, trigger="manual")]  # a stale source lap
+
+    relapped = auto_lap(activity, interval_m=1000.0)
+
+    # The manual lap is gone, replaced by the two 1 km distance laps.
+    assert _lap_triggers(relapped) == ["distance", "distance"]
+    assert all(lap.trigger != "manual" for lap in relapped.laps)
+
+
+@pytest.mark.unit
+def test_auto_lap_uses_recorded_distance_when_present() -> None:
+    # The recorded distance jumps fast while positions barely move; the laps must
+    # follow the recorded distance, not a position recompute.
+    points = [
+        _at(0, lat=0.0, lon=0.0, distance=0.0),
+        _at(10, lat=0.0001, lon=0.0, distance=600.0),
+        _at(20, lat=0.0002, lon=0.0, distance=1200.0),
+    ]
+    activity = _activity(points)
+
+    relapped = auto_lap(activity, interval_m=1000.0)
+
+    # 1000 m first reached at the third point (1200 m, t=20); no leftover beyond.
+    assert _lap_offsets(relapped) == [(0, 20)]
+    assert _lap_triggers(relapped) == ["distance"]
+
+
+@pytest.mark.unit
+def test_auto_lap_falls_back_to_haversine_without_recorded_distance() -> None:
+    # No recorded distance: distance is recomputed from positions. Points are one
+    # degree of latitude apart (~111.19 km each), so a 200 km interval first
+    # closes at the second step (~222 km).
+    points = [
+        _at(0, lat=0.0, lon=0.0),
+        _at(10, lat=1.0, lon=0.0),
+        _at(20, lat=2.0, lon=0.0),
+    ]
+    activity = _activity(points)
+
+    relapped = auto_lap(activity, interval_m=200_000.0)
+
+    # ~111 km at t=10 (below 200 km), ~222 km at t=20 crosses 200 km.
+    assert _lap_offsets(relapped) == [(0, 20)]
+
+
+@pytest.mark.unit
+def test_auto_lap_falls_back_when_recorded_distance_goes_backwards() -> None:
+    # A non-monotonic recorded distance is not trusted; the position recompute is
+    # used instead. Positions are one degree of latitude apart each.
+    points = [
+        _at(0, lat=0.0, lon=0.0, distance=0.0),
+        _at(10, lat=1.0, lon=0.0, distance=50.0),  # backwards vs next
+        _at(20, lat=2.0, lon=0.0, distance=10.0),  # decreases: not monotonic
+    ]
+    activity = _activity(points)
+
+    relapped = auto_lap(activity, interval_m=200_000.0)
+
+    # Falling back to haversine (~111 km/step) crosses 200 km at the last point.
+    assert _lap_offsets(relapped) == [(0, 20)]
+
+
+@pytest.mark.unit
+def test_auto_lap_does_not_mutate_the_input() -> None:
+    points = [_at(i * 10, distance=i * 500.0) for i in range(5)]
+    activity = _activity(points)
+    activity.laps = [_lap(0, 40, trigger="manual")]
+
+    auto_lap(activity, interval_m=1000.0)
+
+    # The original keeps its single manual lap; a fresh activity was returned.
+    assert _lap_triggers(activity) == ["manual"]
+
+
+@pytest.mark.unit
+def test_auto_lap_without_distance_or_position_raises() -> None:
+    # No recorded distance and no positions: there is nothing to measure laps by.
+    points = [_at(0, hr=120), _at(10, hr=130), _at(20, hr=140)]
+    activity = _activity(points)
+
+    with pytest.raises(TransformError):
+        auto_lap(activity, interval_m=1000.0)
+
+
+@pytest.mark.unit
+def test_auto_lap_with_no_timed_points_raises() -> None:
+    activity = _activity([TrackPoint(time=None, distance=500.0)])
+
+    with pytest.raises(TransformError):
+        auto_lap(activity, interval_m=1000.0)
+
+
+@pytest.mark.unit
+def test_auto_lap_rejects_a_non_positive_interval() -> None:
+    activity = _activity([_at(0, distance=0.0), _at(10, distance=500.0)])
+
+    with pytest.raises(ValueError):
+        auto_lap(activity, interval_m=0.0)
+
+
+# --- laps_from_boundaries (the shared helper) ----------------------------
+
+
+@pytest.mark.unit
+def test_laps_from_boundaries_pairs_consecutive_starts() -> None:
+    end = _BASE + timedelta(seconds=60)
+    boundaries = [
+        _BASE,
+        _BASE + timedelta(seconds=20),
+        _BASE + timedelta(seconds=40),
+    ]
+
+    laps = laps_from_boundaries(boundaries, activity_end=end, trigger="distance")
+
+    spans = []
+    for lap in laps:
+        assert lap.end_time is not None  # these laps are all closed
+        spans.append(
+            (
+                int((lap.start_time - _BASE).total_seconds()),
+                int((lap.end_time - _BASE).total_seconds()),
+            )
+        )
+    assert spans == [(0, 20), (20, 40), (40, 60)]
+    assert [lap.trigger for lap in laps] == ["distance", "distance", "session_end"]
+
+
+@pytest.mark.unit
+def test_laps_from_boundaries_single_start_is_one_whole_lap() -> None:
+    end = _BASE + timedelta(seconds=30)
+
+    laps = laps_from_boundaries([_BASE], activity_end=end, trigger="distance")
+
+    assert len(laps) == 1
+    assert laps[0].start_time == _BASE
+    assert laps[0].end_time == end
+    assert laps[0].trigger == "session_end"
+
+
+@pytest.mark.unit
+def test_laps_from_boundaries_no_trailing_lap_when_last_boundary_is_the_end() -> None:
+    end = _BASE + timedelta(seconds=40)
+    boundaries = [_BASE, _BASE + timedelta(seconds=20), end]
+
+    laps = laps_from_boundaries(boundaries, activity_end=end, trigger="distance")
+
+    # The last boundary lands exactly on the end: no zero-length session-end lap.
+    assert [lap.trigger for lap in laps] == ["distance", "distance"]
+    assert laps[-1].end_time == end
+
+
+@pytest.mark.unit
+def test_laps_from_boundaries_empty_yields_no_laps() -> None:
+    assert laps_from_boundaries([], activity_end=_BASE, trigger="distance") == []
+
+
+@pytest.mark.unit
+def test_laps_from_boundaries_honours_the_completed_trigger() -> None:
+    # The detector phase reuses this with its own trigger; it must be passed through.
+    end = _BASE + timedelta(seconds=40)
+    boundaries = [_BASE, _BASE + timedelta(seconds=20)]
+
+    laps = laps_from_boundaries(boundaries, activity_end=end, trigger="time")
+
+    assert laps[0].trigger == "time"
+    assert laps[-1].trigger == "session_end"

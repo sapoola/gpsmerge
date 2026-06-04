@@ -10,12 +10,21 @@ needs degrees both call the same tested functions.
 from __future__ import annotations
 
 import math
+import re
 
 from gpsmerge.model import TrackPoint
 
 # IUGG mean Earth radius in metres. Using one fixed sphere keeps haversine
 # distances reproducible across readers and writers.
 EARTH_RADIUS_M: float = 6_371_008.8
+
+# A distance like "1km", "500m", "0.5mi", "1mi", or a bare "1000". The unit is
+# optional and defaults to metres; the value may carry decimals. Case and
+# surrounding whitespace do not matter (handled in :func:`parse_distance`).
+_DISTANCE_RE = re.compile(r"^(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>km|mi|m)?$")
+
+# Metres per supported distance unit. A bare number with no unit is metres.
+_DISTANCE_UNIT_METRES: dict[str, float] = {"m": 1.0, "km": 1000.0, "mi": 1609.344}
 
 # FIT stores latitude and longitude as signed 32-bit "semicircles", where a
 # full circle is 2**32 units. 2**31 semicircles is therefore 180 degrees.
@@ -26,6 +35,46 @@ _DEGREES_PER_HALF_TURN: float = 180.0
 # 2**31, which would overflow this field, so the conversion clamps to these.
 _INT32_MIN: int = -(2**31)
 _INT32_MAX: int = 2**31 - 1
+
+
+def parse_distance(spec: str) -> float:
+    """Parse a distance spec into metres.
+
+    Accepts ``"1km"``, ``"500m"``, ``"0.5mi"``, ``"1mi"``, or a bare number such
+    as ``"1000"`` (taken as metres). The unit is case-insensitive and may be
+    separated from the value by spaces. The result must be strictly positive --
+    a zero or negative interval cannot split a track into laps.
+
+    Parameters
+    ----------
+    spec : str
+        A distance with an optional ``km`` / ``mi`` / ``m`` suffix.
+
+    Returns
+    -------
+    float
+        The distance in metres.
+
+    Raises
+    ------
+    ValueError
+        If `spec` is not a recognised distance, or is not strictly positive.
+    """
+    cleaned = spec.strip().lower()
+    if not cleaned:
+        raise ValueError("distance spec is empty")
+
+    match = _DISTANCE_RE.match(cleaned)
+    if match is None:
+        raise ValueError(
+            f"could not understand distance {spec!r}; use e.g. '1km', '500m', "
+            "'0.5mi', or '1mi'"
+        )
+
+    metres = float(match["value"]) * _DISTANCE_UNIT_METRES[match["unit"] or "m"]
+    if metres <= 0:
+        raise ValueError(f"distance must be greater than zero, got {spec!r}")
+    return metres
 
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

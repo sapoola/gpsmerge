@@ -197,7 +197,8 @@ def test_append_two_sequential_files_writes_a_merged_gpx(
             "gpx",  # output format
         ],
         path=[str(a), str(b), "", str(output)],  # two files, blank to finish, output
-        text=["", "", ""],  # timezone (skip), sport (keep source), profile (skip)
+        # timezone (skip), sport (keep source), auto-lap (skip), profile (skip)
+        text=["", "", "", ""],
         confirm=[
             False,  # ignore big gaps?
             True,  # apply standard clean-up
@@ -237,7 +238,8 @@ def test_timezone_answer_reaches_the_pipeline_run(
     _ScriptedPrompts(
         select=["append", "pause", "Garmin Edge 530", "gpx"],
         path=[str(a), str(b), "", str(output)],
-        text=["Europe/Amsterdam", "", ""],  # timezone, sport (skip), profile (skip)
+        # timezone, sport (skip), auto-lap (skip), profile (skip)
+        text=["Europe/Amsterdam", "", "", ""],
         confirm=[False, True, True],  # big gaps, clean-up, write it
     ).install(monkeypatch)
 
@@ -265,7 +267,8 @@ def test_stack_two_overlapping_files_borrows_the_sensor_channel(
             "gpx",  # output format
         ],
         path=[str(gps), str(sensor), "", str(output)],
-        text=["", "", ""],  # timezone (skip), sport (keep source), profile (skip)
+        # timezone (skip), sport (keep source), auto-lap (skip), profile (skip)
+        text=["", "", "", ""],
         confirm=[
             False,  # clocks out of sync? (decline alignment)
             True,  # apply standard clean-up
@@ -303,7 +306,8 @@ def test_stack_clock_align_answer_reaches_the_pipeline_run(
     _ScriptedPrompts(
         select=["stack", str(gps), "Garmin Watch", "gpx"],
         path=[str(gps), str(sensor), "", str(output)],
-        text=["", "", ""],  # timezone (skip), sport (keep source), profile (skip)
+        # timezone (skip), sport (keep source), auto-lap (skip), profile (skip)
+        text=["", "", "", ""],
         confirm=[
             True,  # clocks out of sync? -> align them
             True,  # clean-up
@@ -336,7 +340,8 @@ def test_contradicting_mode_choice_is_recovered_not_crashed(
             "gpx",  # format
         ],
         path=[str(a), str(b), "", str(output)],
-        text=["", "", ""],  # timezone (skip), sport (keep source), profile (skip)
+        # timezone (skip), sport (keep source), auto-lap (skip), profile (skip)
+        text=["", "", "", ""],
         confirm=[
             False,  # ignore big gaps?
             True,  # clean-up
@@ -367,7 +372,8 @@ def test_existing_output_path_overwrite_is_honoured(
             "overwrite",  # the existing-file choice
         ],
         path=[str(a), str(b), "", str(output)],
-        text=["", "", ""],  # timezone (skip), sport (keep source), profile (skip)
+        # timezone (skip), sport (keep source), auto-lap (skip), profile (skip)
+        text=["", "", "", ""],
         confirm=[
             False,  # ignore big gaps?
             True,  # clean-up
@@ -395,7 +401,8 @@ def test_fewer_than_two_files_then_blank_keeps_prompting(
     _ScriptedPrompts(
         select=["append", "pause", "Garmin Edge 530", "gpx"],
         path=["", str(a), str(b), "", str(output)],  # leading blank ignored
-        text=["", "", ""],  # timezone (skip), sport (skip), profile (skip)
+        # timezone (skip), sport (skip), auto-lap (skip), profile (skip)
+        text=["", "", "", ""],
         confirm=[False, True, True],
     ).install(monkeypatch)
 
@@ -417,7 +424,8 @@ def test_nonexistent_then_valid_path_is_reprompted(
         select=["append", "pause", "Garmin Edge 530", "gpx"],
         # First path does not exist: rejected and re-prompted.
         path=[str(missing), str(a), str(b), "", str(output)],
-        text=["", "", ""],  # timezone (skip), sport (skip), profile (skip)
+        # timezone (skip), sport (skip), auto-lap (skip), profile (skip)
+        text=["", "", "", ""],
         confirm=[False, True, True],
     ).install(monkeypatch)
 
@@ -437,7 +445,7 @@ def test_declining_to_write_returns_zero_without_a_file(
     _ScriptedPrompts(
         select=["append", "pause", "Garmin Edge 530", "gpx"],
         path=[str(a), str(b), "", str(output)],
-        text=["", ""],  # timezone (skip), sport (skip)
+        text=["", "", ""],  # timezone (skip), sport (skip), auto-lap (skip)
         confirm=[
             False,  # ignore big gaps?
             True,  # clean-up
@@ -492,8 +500,8 @@ def test_naming_a_profile_at_the_end_saves_the_general_settings(
     _ScriptedPrompts(
         select=["append", "pause", "Garmin Edge 530", "gpx"],
         path=[str(a), str(b), "", str(output)],
-        # timezone, sport (skip), then a profile name at the final prompt.
-        text=["Europe/Amsterdam", "", "commute"],
+        # timezone, sport (skip), auto-lap (skip), then a profile name last.
+        text=["Europe/Amsterdam", "", "", "commute"],
         confirm=[False, True, True],  # big gaps, clean-up, write it
     ).install(monkeypatch)
 
@@ -505,3 +513,68 @@ def test_naming_a_profile_at_the_end_saves_the_general_settings(
     assert saved["mode"] == "append"
     assert "inputs" not in saved
     assert "output" not in saved
+
+
+def _write_power_gpx(path: Path, *, start_offset: int, level: int, count: int) -> Path:
+    """Write a sequential, position-carrying GPX with a constant power level."""
+    from datetime import UTC, datetime, timedelta
+
+    from gpsmerge.gpx import write_gpx
+    from gpsmerge.model import Activity, Segment, TrackPoint
+
+    base = datetime(2026, 6, 4, 8, 0, 0, tzinfo=UTC)
+    points = [
+        TrackPoint(
+            time=base + timedelta(seconds=start_offset + i),
+            lat=52.0 + (start_offset + i) * 1e-5,
+            lon=4.0,
+            power=level,
+        )
+        for i in range(count)
+    ]
+    write_gpx(Activity(sport="cycling", segments=[Segment(points=points)]), path)
+    return path
+
+
+@pytest.mark.unit
+def test_wizard_offers_workout_detection_when_power_is_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("numpy", reason="workout detection needs the numpy extra")
+
+    a = _write_power_gpx(tmp_path / "a.gpx", start_offset=0, level=300, count=120)
+    b = _write_power_gpx(tmp_path / "b.gpx", start_offset=130, level=180, count=120)
+    output = tmp_path / "merged.tcx"
+
+    seen: list[bool] = []
+    real_run = wizard.run_pipeline
+
+    def spy(settings: Any) -> Any:
+        seen.append(settings.detect_workout)
+        return real_run(settings)
+
+    monkeypatch.setattr(wizard, "run_pipeline", spy)
+
+    _ScriptedPrompts(
+        select=["append", "pause", "Garmin Edge 530", "tcx"],
+        path=[str(a), str(b), "", str(output)],
+        # timezone (skip), sport (skip), then the profile name at the end (skip);
+        # no auto-lap text prompt because workout detection is on.
+        text=["", "", ""],
+        confirm=[
+            False,  # ignore big gaps?
+            True,  # detect a workout? -> yes (this is the new gated prompt)
+            True,  # clean-up
+            True,  # write it?
+        ],
+    ).install(monkeypatch)
+
+    code = wizard.run()
+
+    assert code == 0
+    assert output.exists()
+    # The detect-workout flag reached both the preview and the final write run,
+    # and the auto-lap text prompt was skipped (workout and auto-lap are exclusive).
+    assert seen and all(seen)
+    written = read(output)
+    assert len(written.laps) >= 2

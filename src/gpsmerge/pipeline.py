@@ -9,7 +9,7 @@ print the issues, or print the preview, and exit.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -17,10 +17,12 @@ from gpsmerge.config import Settings
 from gpsmerge.errors import (
     EXIT_EMPTY_RESULT,
     EXIT_MODE_CONFLICT,
+    EXIT_NO_WORKOUT_DATA,
     EXIT_PARSE,
     EXIT_WRITE,
     GpsmergeError,
     Issue,
+    WorkoutError,
     WriteError,
 )
 from gpsmerge.geo import cumulative_distance, haversine
@@ -29,12 +31,14 @@ from gpsmerge.model import Activity, TrackPoint
 from gpsmerge.read import read
 from gpsmerge.timeutil import parse_duration, parse_time, parse_timezone
 from gpsmerge.transforms import (
+    auto_lap,
     insert_stopped_time,
     shift_time,
     smooth_elevation,
     trim,
 )
 from gpsmerge.validate import validate
+from gpsmerge.workout import detect_workout
 from gpsmerge.write import write
 
 # A position jump at least this large is called out in the preview as a likely
@@ -71,6 +75,9 @@ class Preview:
     timezone_label : str or None
         The raw timezone spec the local times were resolved from, echoed back so
         the preview can name the zone.
+    workout_summary : str or None
+        The detected workout's one-line summary (e.g. ``"5:00 @ 300 W, ..."``),
+        when ``--detect-workout`` ran. ``None`` otherwise.
     """
 
     point_count: int
@@ -85,6 +92,7 @@ class Preview:
     local_start: datetime | None = None
     local_end: datetime | None = None
     timezone_label: str | None = None
+    workout_summary: str | None = None
 
 
 @dataclass(slots=True)
@@ -149,14 +157,17 @@ def run(settings: Settings) -> RunResult:
     merged = (
         stack(activities, settings) if mode == "stack" else append(activities, settings)
     )
-    merged = _apply_transforms(merged, settings)
+    try:
+        merged, workout_summary = _apply_transforms(merged, settings)
+    except WorkoutError as exc:
+        return RunResult(issues=[Issue(EXIT_NO_WORKOUT_DATA, str(exc))])
     points = list(merged.points())
     if not points:
         return RunResult(
             issues=[Issue(EXIT_EMPTY_RESULT, "the merge produced no points")]
         )
 
-    preview = _build_preview(merged, settings.timezone)
+    preview = _build_preview(merged, settings.timezone, workout_summary)
 
     if settings.dry_run:
         return RunResult(
@@ -176,13 +187,19 @@ def run(settings: Settings) -> RunResult:
     return RunResult(issues=[], preview=preview, output=settings.output, written=True)
 
 
-def _apply_transforms(activity: Activity, settings: Settings) -> Activity:
+def _apply_transforms(
+    activity: Activity, settings: Settings
+) -> tuple[Activity, str | None]:
     """Apply the requested post-merge adjustments, in a fixed order.
 
     The order matters: trim first (it re-bases distance and shrinks the track),
-    then shift the clock, then split long gaps into pauses, then smooth elevation.
-    Validation has already checked every spec parses, so the parses here cannot
-    fail. Each step is skipped when its option is off, so an untouched merge is
+    then shift the clock, then split long gaps into pauses, then smooth
+    elevation, then re-lap by distance, and finally detect a workout -- the
+    workout detector runs last so it sees the final cropped, re-based, re-timed
+    data, and (like auto-lap) replaces the laps. Validation has already checked
+    every spec parses and that ``--auto-lap`` and ``--detect-workout`` are not
+    both set, so the parses here cannot fail and the two never fight over the
+    laps. Each step is skipped when its option is off, so an untouched merge is
     returned unchanged.
 
     Parameters
@@ -194,8 +211,16 @@ def _apply_transforms(activity: Activity, settings: Settings) -> Activity:
 
     Returns
     -------
-    Activity
-        The adjusted activity (the same object when nothing was requested).
+    tuple
+        ``(activity, workout_summary)`` -- the adjusted activity, and the
+        detected workout's summary line when ``--detect-workout`` ran (else
+        ``None``).
+
+    Raises
+    ------
+    WorkoutError
+        If ``--detect-workout`` is set but there is no usable effort channel.
+        :func:`run` maps this to :data:`EXIT_NO_WORKOUT_DATA`.
     """
     if settings.trim_start is not None or settings.trim_end is not None:
         start = parse_time(settings.trim_start) if settings.trim_start else None
@@ -207,10 +232,19 @@ def _apply_transforms(activity: Activity, settings: Settings) -> Activity:
         activity = insert_stopped_time(activity, settings.stopped_time_threshold_s)
     if settings.smooth_elevation is not None:
         activity = smooth_elevation(activity, settings.smooth_elevation)
-    return activity
+    if settings.auto_lap_m is not None:
+        activity = auto_lap(activity, settings.auto_lap_m)
+    workout_summary: str | None = None
+    if settings.detect_workout:
+        workout = detect_workout(activity, min_seconds=settings.workout_min_seconds)
+        activity = replace(activity, laps=workout.laps)
+        workout_summary = workout.summary
+    return activity, workout_summary
 
 
-def _build_preview(activity: Activity, timezone: str | None) -> Preview:
+def _build_preview(
+    activity: Activity, timezone: str | None, workout_summary: str | None
+) -> Preview:
     """Summarise a merged activity, including any sanity warnings.
 
     Parameters
@@ -222,6 +256,9 @@ def _build_preview(activity: Activity, timezone: str | None) -> Preview:
         :func:`gpsmerge.timeutil.parse_timezone`). When given and valid, the
         preview also carries the start/end shown in that zone; the activity's
         own timestamps are never touched.
+    workout_summary : str or None
+        The detected workout's summary line, or ``None`` when detection did not
+        run.
     """
     points = list(activity.points())
     start, end = _time_span(points)
@@ -239,6 +276,7 @@ def _build_preview(activity: Activity, timezone: str | None) -> Preview:
         local_start=local_start,
         local_end=local_end,
         timezone_label=timezone if local_start is not None else None,
+        workout_summary=workout_summary,
     )
 
 

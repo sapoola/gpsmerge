@@ -2,7 +2,7 @@
 
 After gpsmerge combines your files into one activity, it can adjust that activity before writing it. These transforms are optional and off by default; each is a single flag on `gpsmerge run`. They never touch the input files, only the merged result, and the written timestamps stay UTC.
 
-When more than one is requested they are applied in a fixed order: trim, then shift, then split long gaps into pauses, then smooth elevation. The order means a trim shrinks the track first, and the re-based distance and re-segmenting all see a clean, trimmed track.
+When more than one is requested they are applied in a fixed order: trim, then shift, then split long gaps into pauses, then smooth elevation, then re-lap by distance. The order means a trim shrinks the track first, and the re-based distance, re-segmenting, and lap boundaries all see a clean, trimmed track. Re-lapping runs last so the laps reflect the final cropped and re-based data.
 
 ## Shift the clock
 
@@ -35,3 +35,21 @@ gpsmerge run a.gpx b.gpx --out ride.gpx --smooth-elevation 5
 ```
 gpsmerge run a.gpx b.gpx --out ride.gpx --insert-stopped-time --stopped-time-threshold 60
 ```
+
+## Re-lap into even distance splits
+
+`--auto-lap <distance>` re-laps the merged activity into even distance splits — a fresh lap every kilometre, mile, or whatever distance you give. It *replaces* whatever laps the source files carried; this is a re-lap, not an addition. The distance is `1km`, `500m`, `0.5mi`, `1mi`, or a bare number of metres like `1000`.
+
+Each lap closes the moment the running distance crosses the next multiple of the interval, so the boundaries land on the kilometre (or mile) marks. The completed laps are tagged with the `distance` trigger; the leftover past the last whole interval becomes a final `session_end` lap. An activity shorter than one interval is a single whole-activity lap.
+
+Distance is read from the recorded distance channel when every point carries it and it never goes backwards; otherwise it is recomputed from the GPS positions. An activity with neither a recorded distance nor any positions cannot be split into even laps, and `--auto-lap` is refused up front with a clear message.
+
+```
+gpsmerge run a.gpx b.gpx --out ride.tcx --format tcx --auto-lap 1km
+```
+
+Laps are written to TCX and FIT. **GPX has no lap concept, so laps are dropped when writing GPX** — write TCX (or experimental FIT) to keep the splits.
+
+## Detect a structured workout (BETA)
+
+`--detect-workout` (BETA) is the other transform that sets the laps: instead of even distance splits, it auto-detects the interval structure hidden in the activity's effort channel — power for rides, speed for runs, chosen automatically — and writes each held effort as a lap, plus a one-line summary. A step counts only when the level shifts by at least 15% of the ride's *own* average effort, so the threshold self-calibrates to easy and hard rides alike with no FTP and no tuning. It needs the `workout` extra (`pip install 'gpsmerge[workout]'`) and is mutually exclusive with `--auto-lap` (both set the laps). See `docs/workout-detection.md` for the full story.

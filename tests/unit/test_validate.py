@@ -234,8 +234,66 @@ def test_smooth_elevation_window_below_three_is_a_usage_error(tmp_path: Path) ->
 
 
 @pytest.mark.unit
+def test_auto_lap_and_detect_workout_together_is_a_usage_error(tmp_path: Path) -> None:
+    issues = validate(
+        _two_sequential(),
+        _settings(tmp_path / "out.gpx", auto_lap_m=1000.0, detect_workout=True),
+    )
+    assert any(
+        issue.code == EXIT_USAGE and "both set laps" in issue.message
+        for issue in issues
+    )
+
+
+@pytest.mark.unit
+def test_detect_workout_alone_has_no_lap_source_conflict(tmp_path: Path) -> None:
+    issues = validate(
+        _two_sequential(), _settings(tmp_path / "out.gpx", detect_workout=True)
+    )
+    assert issues == []
+
+
+@pytest.mark.unit
 def test_odd_smooth_elevation_window_has_no_issues(tmp_path: Path) -> None:
     issues = validate(
         _two_sequential(), _settings(tmp_path / "out.gpx", smooth_elevation=5)
     )
     assert issues == []
+
+
+@pytest.mark.unit
+def test_auto_lap_with_position_inputs_has_no_issues(tmp_path: Path) -> None:
+    # The sequential pair carries GPS positions, so distance can be measured.
+    issues = validate(
+        _two_sequential(), _settings(tmp_path / "out.tcx", auto_lap_m=1000.0)
+    )
+    assert issues == []
+
+
+@pytest.mark.unit
+def test_auto_lap_with_recorded_distance_has_no_issues(tmp_path: Path) -> None:
+    # No GPS, but a recorded distance channel: enough to split into even laps.
+    pair = _indoor_pair()
+    for activity in pair:
+        for index, point in enumerate(activity.points()):
+            point.distance = float(index * 100)
+    issues = validate(
+        pair,
+        _settings(tmp_path / "out.tcx", output_format="tcx", auto_lap_m=1000.0),
+    )
+    assert issues == []
+
+
+@pytest.mark.unit
+def test_auto_lap_without_distance_or_position_is_a_usage_error(
+    tmp_path: Path,
+) -> None:
+    # Indoor (position-less) and no recorded distance: nothing to lap by. TCX
+    # output so the position-less-GPX check does not mask the auto-lap one.
+    issues = validate(
+        _indoor_pair(),
+        _settings(tmp_path / "out.tcx", output_format="tcx", auto_lap_m=1000.0),
+    )
+    assert any(
+        "--auto-lap" in issue.message and issue.code == EXIT_USAGE for issue in issues
+    )

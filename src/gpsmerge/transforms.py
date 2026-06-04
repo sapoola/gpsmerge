@@ -7,7 +7,7 @@ one -- they never mutate the input, building fresh :class:`Segment` and
 does. That keeps them composable: the pipeline chains them in a fixed order and
 each sees the previous one's clean output.
 
-The four adjustments and what each fixes:
+The adjustments and what each fixes:
 
 - :func:`shift_time` -- the device clock was wrong, so every timestamp is off by a
   constant amount.
@@ -16,6 +16,14 @@ The four adjustments and what each fixes:
   spikes need flattening.
 - :func:`insert_stopped_time` -- a long non-moving gap should count as a pause
   (stopped time), not as moving time.
+- :func:`auto_lap` -- the laps should be even distance splits (every 1 km, say)
+  rather than whatever the source recorded.
+
+:func:`auto_lap` is the first transform that *generates* a timeline overlay
+rather than adjusting points, so it shares the small
+:func:`laps_from_boundaries` helper -- "turn a list of boundary times into
+:class:`Lap` objects" -- which a later workout detector reuses to build laps from
+the boundaries it finds.
 """
 
 from __future__ import annotations
@@ -23,6 +31,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timedelta
 
+from gpsmerge.errors import TransformError
+from gpsmerge.geo import cumulative_distance
 from gpsmerge.model import Activity, Lap, Segment, TrackPoint
 
 # A smoothing window must be odd (so it is centred on its point) and at least
@@ -316,3 +326,175 @@ def _split_on_gaps(segment: Segment, threshold_s: float) -> list[Segment]:
     if current:
         runs.append(current)
     return [Segment(points=run) for run in runs]
+
+
+def auto_lap(activity: Activity, interval_m: float) -> Activity:
+    """Return a copy re-lapped into even distance splits every ``interval_m`` metres.
+
+    The points are walked in recorded order, tracking cumulative distance. Each
+    time the running distance crosses the next multiple of ``interval_m``, the
+    current lap closes at that point's time and the next opens, so the laps fall
+    on the kilometre (or mile) marks rather than wherever the source recorded
+    them. This *replaces* any existing laps -- it is a re-lap, not an addition.
+
+    Distance comes from each point's recorded ``distance`` when the channel is
+    present and non-decreasing; otherwise it is recomputed from the positions
+    with :func:`gpsmerge.geo.cumulative_distance`. A device that stops emitting
+    distance while stationary, or one point's stray backwards value, drops the
+    whole activity to the position recompute so a single glitch cannot mis-place
+    a boundary.
+
+    Completed laps are tagged ``trigger="distance"``; the final, partial lap
+    (the leftover past the last whole interval) is ``trigger="session_end"``. An
+    activity shorter than one interval yields a single whole-activity lap.
+
+    Parameters
+    ----------
+    activity : Activity
+        The merged activity to re-lap. Not mutated.
+    interval_m : float
+        The lap length in metres; must be greater than zero.
+
+    Returns
+    -------
+    Activity
+        A copy of the activity whose ``laps`` are the even distance splits.
+
+    Raises
+    ------
+    TransformError
+        If the activity has no timed points to lap, or no distance and no
+        positions to measure distance from. Validation flags this up front, so a
+        normal run never reaches it.
+    ValueError
+        If `interval_m` is not greater than zero.
+    """
+    if interval_m <= 0:
+        raise ValueError(f"lap interval must be greater than zero, got {interval_m}")
+
+    points = [p for p in activity.points() if p.time is not None]
+    if not points:
+        raise TransformError("cannot auto-lap an activity with no timestamped points")
+
+    distances = _lap_distances(points)
+    if distances is None:
+        raise TransformError(
+            "cannot auto-lap by distance: the activity has no recorded distance "
+            "and no positions to measure one from"
+        )
+
+    # The points are already filtered to timed ones, so every ``time`` is set.
+    times = [p.time for p in points if p.time is not None]
+    boundaries = _distance_boundary_times(times, distances, interval_m)
+    laps = laps_from_boundaries(boundaries, activity_end=times[-1], trigger="distance")
+    return replace(activity, laps=laps)
+
+
+def laps_from_boundaries(
+    boundaries: list[datetime], activity_end: datetime, *, trigger: str
+) -> list[Lap]:
+    """Turn lap-start boundary times into a contiguous list of :class:`Lap` overlays.
+
+    ``boundaries`` are the lap-start times in ascending order: the activity start
+    followed by each interior crossing. Consecutive starts pair into a lap, and a
+    final lap runs from the last boundary to ``activity_end``. With boundaries
+    ``[b0, b1, b2]`` and end ``e`` the laps are ``[b0..b1]``, ``[b1..b2]``,
+    ``[b2..e]``; with just ``[b0]`` the result is the single lap ``[b0..e]``.
+
+    Every lap that closes on a real boundary carries ``trigger``. The trailing
+    run-to-end lap is the leftover past the last whole interval, so it is tagged
+    ``"session_end"`` (the device closes it on stop) -- unless the last boundary
+    already lands exactly on ``activity_end``, in which case there is no leftover
+    and no trailing lap is added.
+
+    This is the shared "boundaries -> laps" plumbing: :func:`auto_lap` feeds it
+    the distance-crossing times, and the workout detector (a later phase) feeds
+    it the interval edges it finds, both getting the same contiguous, gap-free
+    overlay.
+
+    Parameters
+    ----------
+    boundaries : list of datetime
+        Lap-start times in ascending order, starting with the activity start.
+        Empty yields no laps.
+    activity_end : datetime
+        The last point's time; the final lap runs up to here.
+    trigger : str
+        The trigger to tag each completed lap with (e.g. ``"distance"``).
+
+    Returns
+    -------
+    list of Lap
+        Contiguous laps in order; ``[]`` when ``boundaries`` is empty.
+    """
+    laps: list[Lap] = []
+    for start, end in zip(boundaries, boundaries[1:]):
+        laps.append(Lap(start_time=start, end_time=end, trigger=trigger))
+    if boundaries and boundaries[-1] < activity_end:
+        # The leftover past the last whole interval: the device closes this on
+        # stop, so it is a session-end lap, not a distance one. When the last
+        # boundary already lands exactly on the end there is no leftover, and the
+        # final completed lap above is the last one.
+        laps.append(
+            Lap(
+                start_time=boundaries[-1],
+                end_time=activity_end,
+                trigger="session_end",
+            )
+        )
+    return laps
+
+
+def _lap_distances(points: list[TrackPoint]) -> list[float] | None:
+    """Return a non-decreasing cumulative distance per point, or ``None`` if unknown.
+
+    Prefers the recorded ``distance`` channel when every point carries it and the
+    values never go backwards (a clean, trustworthy record). Otherwise falls back
+    to a haversine recompute from the positions. Returns ``None`` only when there
+    is neither a usable recorded distance nor any position to measure from -- the
+    case validation rejects up front.
+    """
+    recorded = [p.distance for p in points]
+    if all(d is not None for d in recorded) and _monotonic(recorded):
+        first = recorded[0]
+        return [d - first for d in recorded]  # type: ignore[operator]
+
+    if any(p.lat is not None and p.lon is not None for p in points):
+        return cumulative_distance(points)
+    return None
+
+
+def _monotonic(distances: list[float | None]) -> bool:
+    """Return whether the (all-present) distances never decrease."""
+    return all(
+        earlier <= later  # type: ignore[operator]
+        for earlier, later in zip(distances, distances[1:])
+    )
+
+
+def _distance_boundary_times(
+    times: list[datetime], distances: list[float], interval_m: float
+) -> list[datetime]:
+    """Return the lap-start times: the activity start plus each interval crossing.
+
+    Walks the point ``times`` alongside their cumulative ``distances`` (both in
+    point order, one per timed point). The activity start is always the first
+    boundary; thereafter, each time the running distance first reaches the next
+    multiple of ``interval_m`` that point's time opens a new lap. A single
+    multiple is recorded once even if several points share it, and an activity
+    shorter than one interval yields just the start, so
+    :func:`laps_from_boundaries` makes one whole-activity lap.
+    """
+    boundaries = [times[0]]
+    next_mark = interval_m
+    for time, distance in zip(times, distances):
+        if distance < next_mark:
+            continue
+        # One boundary per point that reaches a mark. A single point can pass
+        # several marks at once (a long gap between samples); we advance the mark
+        # past all of them but record only one lap close, so no zero-length lap
+        # is emitted between two identical times.
+        boundaries.append(time)
+        while distance >= next_mark:
+            next_mark += interval_m
+    return boundaries

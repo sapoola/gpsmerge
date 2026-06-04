@@ -62,6 +62,8 @@ def validate(activities: list[Activity], settings: Settings) -> list[Issue]:
     issues.extend(_check_shift(settings.shift))
     issues.extend(_check_trim(settings.trim_start, settings.trim_end))
     issues.extend(_check_smooth_elevation(settings.smooth_elevation))
+    issues.extend(_check_auto_lap(activities, settings.auto_lap_m))
+    issues.extend(_check_lap_sources(settings.auto_lap_m, settings.detect_workout))
     issues.extend(_check_gpx_needs_position(activities, settings.output_format))
     if not settings.dry_run:  # a dry run writes nothing, so the output path is moot
         issues.extend(_check_output_path(settings.output, settings.assume_yes))
@@ -159,6 +161,55 @@ def _parsed_bound(value: str | None, flag: str, issues: list[Issue]) -> datetime
             )
         )
         return None
+
+
+def _check_auto_lap(
+    activities: list[Activity], auto_lap_m: float | None
+) -> list[Issue]:
+    """Flag an auto-lap request the inputs cannot satisfy.
+
+    Re-lapping by distance needs a distance to measure against: either a recorded
+    distance channel or positions to recompute one from. With neither, the
+    transform would raise mid-pipeline, so it is caught here as a clean usage
+    error up front.
+    """
+    if auto_lap_m is None:
+        return []
+    if any(_has_distance_or_position(activity) for activity in activities):
+        return []
+    return [
+        Issue(
+            EXIT_USAGE,
+            "--auto-lap needs distance: these recordings have no recorded "
+            "distance and no GPS position to measure one from, so they cannot be "
+            "split into even laps",
+        )
+    ]
+
+
+def _has_distance_or_position(activity: Activity) -> bool:
+    """Return whether any point carries a recorded distance or a position."""
+    return any(
+        p.distance is not None or (p.lat is not None and p.lon is not None)
+        for p in activity.points()
+    )
+
+
+def _check_lap_sources(auto_lap_m: float | None, detect_workout: bool) -> list[Issue]:
+    """Flag setting both ``--auto-lap`` and ``--detect-workout``.
+
+    Both write the activity's laps: auto-lap to even distance splits, workout
+    detection to the detected intervals. Running both would mean one silently
+    overwrites the other, so requiring exactly one is the honest contract.
+    """
+    if auto_lap_m is not None and detect_workout:
+        return [
+            Issue(
+                EXIT_USAGE,
+                "--auto-lap and --detect-workout both set laps; choose one",
+            )
+        ]
+    return []
 
 
 def _check_smooth_elevation(window: int | None) -> list[Issue]:

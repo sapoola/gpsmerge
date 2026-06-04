@@ -28,6 +28,7 @@ from rich.table import Table
 from gpsmerge import banner, profiles
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
+from gpsmerge.geo import parse_distance
 from gpsmerge.merge import detect_mode
 from gpsmerge.model import Activity
 from gpsmerge.pipeline import RunResult
@@ -90,6 +91,11 @@ def run() -> int:
         output_format = _ask_output_format()
         timezone = _ask_timezone()
         sport = _ask_sport()
+        # The workout offer and the auto-lap offer both set the laps, so they are
+        # mutually exclusive: only offer auto-lap when the user did not opt into
+        # workout detection.
+        detect_workout = _ask_detect_workout(activities)
+        auto_lap_m = None if detect_workout else _ask_auto_lap()
         clean_up = _ask_clean_up()
         output, assume_yes = _ask_output_path(paths, output_format)
     except _Cancelled:
@@ -119,6 +125,8 @@ def run() -> int:
             "device_from": device_from,
             "sport": sport,
             "timezone": timezone,
+            "auto_lap_m": auto_lap_m,
+            "detect_workout": detect_workout,
             "assume_yes": assume_yes,
             "dry_run": True,  # preview first; the real write happens on confirm
         }
@@ -636,6 +644,85 @@ def _ask_sport() -> str | None:
     return answer or None
 
 
+def _ask_auto_lap() -> float | None:
+    """Ask whether to re-lap into even distance splits, returning metres or None.
+
+    A blank answer keeps the source laps. A distance like ``1km`` or ``0.5mi`` is
+    parsed to metres; an unparseable entry is explained and re-prompted, so a typo
+    does not slip through to a mid-merge error.
+
+    Returns
+    -------
+    float or None
+        The even-lap interval in metres, or ``None`` to leave laps as they are.
+    """
+    while True:
+        answer = str(
+            _ask(
+                questionary.text(
+                    "Add even laps every set distance? Type e.g. 1km or 0.5mi, "
+                    "or Enter for none",
+                    default="",
+                )
+            )
+        ).strip()
+        if not answer:
+            return None
+        try:
+            return parse_distance(answer)
+        except ValueError as exc:
+            _console.print(f"[red]{exc}[/red]")
+
+
+def _ask_detect_workout(activities: list[Activity]) -> bool:
+    """Offer BETA workout detection when an effort channel is present to analyse.
+
+    The offer only appears when some input carries a power channel (rides) or a
+    speed channel (runs) -- otherwise there is nothing to detect and the question
+    would only confuse. Presence (not per-file variation) is the gate, because a
+    workout's variation often spans the merge, not a single input; the detector
+    decides whether the merged channel actually varies, and the pipeline surfaces
+    a clear error if it does not. Choosing it earns a one-line BETA heads-up,
+    since the detector is a best-effort heuristic.
+
+    Parameters
+    ----------
+    activities : list of Activity
+        The parsed inputs, checked for a power or speed channel.
+
+    Returns
+    -------
+    bool
+        ``True`` to auto-detect a structured workout and write it as laps.
+    """
+    if not _has_effort_channel(activities):
+        return False
+    detect = bool(
+        _ask(
+            questionary.confirm(
+                "Detect a structured interval workout from the power/speed and "
+                "write it as laps? (BETA -- best for trainer/interval sessions)",
+                default=False,
+            )
+        )
+    )
+    if detect:
+        _console.print(
+            "[yellow]Heads up: workout detection is BETA and a best-effort "
+            "heuristic -- it shines on structured intervals and is rougher on "
+            "smooth ramps and unstructured rides. Check the laps after.[/yellow]"
+        )
+    return detect
+
+
+def _has_effort_channel(activities: list[Activity]) -> bool:
+    """Return whether any input carries a power or speed channel to detect from."""
+    return any(
+        _has_channel(activity, "power") or _has_channel(activity, "speed")
+        for activity in activities
+    )
+
+
 def _ask_clean_up() -> bool:
     """Ask whether to apply the standard clean-up (dedupe and recompute distance)."""
     return bool(
@@ -773,6 +860,8 @@ def _show_success(result: RunResult) -> None:
     )
     table.add_row("channels", ", ".join(preview.channels) or "none")
     table.add_row("device", preview.device_name or "unknown")
+    if preview.workout_summary is not None:
+        table.add_row("workout", f"{preview.workout_summary}  (beta)")
 
     _console.print()
     _console.print(
@@ -846,6 +935,8 @@ def _show_preview(result: RunResult) -> None:
             "local",
             f"{local_range(preview.local_start, preview.local_end)}  ({zone})",
         )
+    if preview.workout_summary is not None:
+        table.add_row("workout", f"{preview.workout_summary}  (beta)")
     _console.print(Panel(table, title="Here's what you'll get", expand=False))
 
     for warning in preview.warnings:

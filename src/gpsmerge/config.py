@@ -92,6 +92,22 @@ class Settings(BaseModel):
     stopped_time_threshold_s : float
         When ``insert_stopped_time`` is set, a gap longer than this many seconds
         becomes a segment boundary.
+    auto_lap_m : float or None
+        If set, re-lap the merged activity into even distance splits of this many
+        metres (a lap every 1 km, say), replacing any source laps. Parsed from a
+        spec like ``"1km"`` or ``"0.5mi"`` by :func:`gpsmerge.geo.parse_distance`
+        and stored as metres. ``None`` leaves the source laps untouched.
+    detect_workout : bool
+        Auto-detect a structured interval workout from the merged activity's
+        primary effort channel (power for rides, speed for runs, chosen
+        automatically) and express it as laps plus a summary line. BETA, a
+        best-effort heuristic. Needs the optional ``workout`` extra (numpy).
+        Mutually exclusive with ``auto_lap_m`` (both set the laps), which
+        validation enforces.
+    workout_min_seconds : float
+        When detecting a workout, segments shorter than this many seconds are
+        absorbed into a neighbour unless they are a real, distinct short effort.
+        Default ``10``.
     """
 
     inputs: list[Path]
@@ -121,3 +137,6 @@ class Settings(BaseModel):
     smooth_elevation: int | None = None
     insert_stopped_time: bool = False
     stopped_time_threshold_s: float = 30.0
+    auto_lap_m: float | None = None
+    detect_workout: bool = False
+    workout_min_seconds: float = 10.0

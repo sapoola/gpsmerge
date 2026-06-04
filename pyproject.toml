@@ -41,6 +41,12 @@ dependencies = [
 # Install with: pip install 'gpsmerge[fit]'  (or: poetry install --extras fit)
 fit = ["fit-tool>=0.9.0"]
 
+# Workout detection (BETA) needs numpy for the segmentation maths; the core
+# install stays numpy-free and the detector imports it lazily, so this extra is
+# only needed to use --detect-workout. numpy ships cp314 wheels.
+# Install with: pip install 'gpsmerge[workout]'  (or: poetry install --extras workout)
+workout = ["numpy>=1.26"]
+
 [project.urls]
 Homepage = "https://github.com/sapoola/gpsmerge"
 Repository = "https://github.com/sapoola/gpsmerge"
@@ -51,6 +57,7 @@ test = [
     "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
     "fit-tool>=0.9.0",  # test-only: builds tiny FIT fixtures for the reader tests
+    "numpy>=1.26",  # the 'workout' extra; here too so its tests run (not skip) in CI
 ]
 dev = [
     { include-group = "test" },
