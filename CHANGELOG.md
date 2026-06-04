@@ -25,3 +25,5 @@ All notable changes to this project are documented here. The format is based on 
 - TCX (Garmin Training Center XML) reading and writing: gpsmerge now reads GPX or TCX and writes GPX or TCX (`--format tcx`). Temperature has no place in TCX and is dropped on write (documented).
 - Interactive guided wizard: running `gpsmerge` with no arguments in a terminal walks you through choosing files, mode, per-channel and device sources, output format, and a sanity-checked preview before writing. Piped or in CI it prints a hint instead, so it never hangs.
 - `gpsmerge examples` and `gpsmerge formats` quick-reference commands, and `docs/wizard.md`.
+- FIT (Garmin/ANT binary) reading: gpsmerge now reads `.fit` files (positions converted from semicircles, timestamps from the FIT epoch, enhanced altitude/speed preferred, device from the file's id message, pauses split at timer-stop events). This completes the v1.0 read contract — **read GPX/TCX/FIT, write GPX/TCX**. Writing FIT remains a later, experimental milestone.
+- Tests that pin the GPX/TCX/Garmin-extension XML namespace identifiers, so an accidental change (they are fixed identifiers, not fetchable URLs) fails loudly.

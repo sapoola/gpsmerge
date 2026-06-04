@@ -30,6 +30,11 @@ from gpsmerge.model import Activity, Device, Segment, TrackPoint
 from gpsmerge.timeutil import parse_time
 
 # Garmin namespaces, written exactly as Garmin Training Center produces them.
+# IMPORTANT: these are XML *namespace identifiers*, not URLs to fetch -- a browser
+# 404 on them is expected and irrelevant. They must match these exact strings or
+# real TCX files stop being recognised. (The downloadable schema lives separately
+# at https://www8.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd, which is a
+# schema-location, not the namespace.) test_namespaces.py pins these.
 TCX_NS = "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"
 TPX_NS = "http://www.garmin.com/xmlschemas/ActivityExtension/v2"
 _XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"

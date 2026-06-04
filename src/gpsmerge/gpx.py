@@ -29,6 +29,9 @@ from lxml import etree
 from gpsmerge.model import Activity, Device, Segment, TrackPoint
 
 # Garmin extension namespaces, written exactly as Strava/Garmin produce them.
+# These are XML *namespace identifiers*, not URLs to fetch -- a browser 404 on
+# them is expected. They must match these exact strings or HR/power round-trips
+# break. test_namespaces.py pins them.
 TRACKPOINT_EXTENSION_NS = "http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
 POWER_EXTENSION_NS = "http://www.garmin.com/xmlschemas/PowerExtension/v1"
 
