@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from gpsmerge.model import Activity, Device, Segment, TrackPoint
+from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
 
 
 @pytest.mark.unit
@@ -42,3 +42,19 @@ def test_two_activities_do_not_share_a_device_instance() -> None:
     other = Activity()
     one.device.name = "Garmin Edge 530"
     assert other.device.name is None
+
+
+@pytest.mark.unit
+def test_activity_has_no_laps_by_default() -> None:
+    assert Activity().laps == []
+
+
+@pytest.mark.unit
+def test_lap_is_a_span_with_an_optional_trigger() -> None:
+    start = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+    end = datetime(2026, 1, 1, 0, 5, 0, tzinfo=UTC)
+    lap = Lap(start_time=start, end_time=end, trigger="manual")
+    assert (lap.start_time, lap.end_time, lap.trigger) == (start, end, "manual")
+    # end_time and trigger are optional (a lap can run to the activity's end).
+    assert Lap(start_time=start).end_time is None
+    assert Lap(start_time=start).trigger is None

@@ -20,7 +20,7 @@ from pathlib import Path
 
 from gpsmerge.config import Settings
 from gpsmerge.geo import haversine
-from gpsmerge.model import Activity, Device, Segment, TrackPoint
+from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
 from gpsmerge.resample import lerp
 
 # Two points at a seam are "the same point" (and one is dropped) if they are this
@@ -89,16 +89,22 @@ def append(activities: list[Activity], settings: Settings) -> Activity:
     ordered = sorted(activities, key=_sort_key)
 
     segments: list[Segment] = []
+    laps: list[Lap] = []
     previous_end: datetime | None = None
     for activity in ordered:
         offset = _shift_offset(activity, previous_end, settings.gap_policy)
         for segment in activity.segments:
             segments.append(Segment(points=[_shift(p, offset) for p in segment.points]))
+        # A lap is a span over this input's timeline, so it moves by the same
+        # shift offset its points do; under "pause" the offset is zero and the
+        # laps keep their recorded times.
+        laps.extend(_shift_lap(lap, offset) for lap in activity.laps)
         previous_end = _last_time(segments)
 
     if settings.dedupe:
         _drop_seam_duplicates(segments)
     segments = [segment for segment in segments if segment.points]
+    laps.sort(key=lambda lap: lap.start_time)
 
     if settings.recompute_distance:
         _assign_distance(_all_points(segments), settings.ignore_big_gaps_m)
@@ -108,6 +114,7 @@ def append(activities: list[Activity], settings: Settings) -> Activity:
         name=ordered[0].name,
         device=_chosen_device(ordered, settings),
         segments=segments,
+        laps=laps,
         time_created=ordered[0].time_created,
     )
 
@@ -157,6 +164,20 @@ def _shift(point: TrackPoint, offset: float) -> TrackPoint:
     if offset == 0.0 or point.time is None:
         return replace(point)
     return replace(point, time=point.time + timedelta(seconds=offset))
+
+
+def _shift_lap(lap: Lap, offset: float) -> Lap:
+    """Return a copy of ``lap`` with its span moved by ``offset`` seconds.
+
+    Always copies, even when ``offset`` is zero, so the merge never mutates the
+    input activities' laps. An open-ended lap (``end_time`` is ``None``) keeps its
+    ``None`` end after shifting.
+    """
+    if offset == 0.0:
+        return replace(lap)
+    delta = timedelta(seconds=offset)
+    end = lap.end_time + delta if lap.end_time is not None else None
+    return replace(lap, start_time=lap.start_time + delta, end_time=end)
 
 
 def _last_time(segments: list[Segment]) -> datetime | None:
@@ -298,6 +319,10 @@ def stack(activities: list[Activity], settings: Settings) -> Activity:
         name=master.name,
         device=_stack_device(activities, settings, master),
         segments=segments,
+        # The master supplies the timeline, so its laps apply to the result
+        # unchanged; copy them so the input is not shared. Donors contribute no
+        # laps -- only borrowed sensor channels.
+        laps=[replace(lap) for lap in master.laps],
         time_created=master.time_created,
     )
 

@@ -18,9 +18,9 @@ Two rules hold *everywhere* in the model, and the merge and writing logic lean o
 
 2. **Every timestamp is timezone-aware UTC.** No naive datetimes, no local time, no surprises when two files were recorded in different time zones. Readers normalise to UTC on the way in (a file that omits a zone is taken to mean UTC); the time helpers in `timeutil.py` only ever return UTC. Because aligning two recordings is fundamentally about matching instants in time, a single shared clock is non-negotiable — stacking would misalign and appending would order things wrongly if time zones drifted in.
 
-## The four classes
+## The five classes
 
-The model is four small dataclasses. Read them top to bottom and there is nothing hidden.
+The model is five small dataclasses. Read them top to bottom and there is nothing hidden.
 
 ### TrackPoint — one recorded instant
 
@@ -31,6 +31,12 @@ A `TrackPoint` is a single moment: where you were and what the sensors read. It 
 A `Segment` is just a list of `TrackPoint`s, but what it *represents* is important: **one continuous stretch of recording, with a pause at each end.** A new segment begins wherever recording stopped and restarted — a red light you waited at, a coffee stop, a device switched off and on. The boundary between two segments *is* a pause.
 
 That boundary is not bookkeeping; it carries meaning. It is what lets a writer distinguish moving time from elapsed time, and it is how an append (see `concepts.md`) preserves the real gap between "battery died" and "phone started" instead of drawing a false straight line across it. In GPX terms a `Segment` maps directly to a `<trkseg>`. The `Activity.points()` helper flattens all segments into one time-ordered stream when you genuinely do not care where the pauses are.
+
+### Lap — a labelled span over the timeline
+
+A `Lap` is an interval or auto-lap: a `start_time`, an optional `end_time`, and an optional `trigger` (why the lap ended — manual button, every 1 km, every 5 minutes). It is a deliberately thin record because a lap is an **overlay**, kept in `Activity.laps` *separately* from segments. This separation matters: a lap and a pause are different things. A twelve-lap track session with no stops is one segment but twelve laps; a single lap can contain a coffee-stop pause. Fusing the two — making a pause a lap boundary, or a lap a segment — corrupts both, so they stay independent lists.
+
+What a `Lap` does **not** store is just as deliberate: no per-lap totals (time, distance, average heart rate). Those are recomputed from the points that fall in the lap's span whenever we write, so after a merge or a trim they always match the real data instead of carrying a stale number from the original file. We keep only the boundary and the trigger; everything else is derived. GPX has no lap concept, so a GPX activity simply has an empty `laps` list, and writing to GPX drops laps (documented in `file-formats.md`).
 
 ### Device — who recorded it, for attribution
 
@@ -44,8 +50,8 @@ An `Activity` ties it together: an optional `sport` and `name`, the `Device` tha
 
 ## What is deliberately left out, and why
 
-You might expect a model like this to also carry laps, route waypoints, GPS accuracy, lap-level summaries, or a bag of arbitrary device-specific fields. They are **deliberately absent**, and that is a design choice, not an oversight.
+You might expect a model like this to also carry route waypoints, GPS accuracy, lap-level summary statistics, or a bag of arbitrary device-specific fields. They are **deliberately absent**, and that is a design choice, not an oversight. (Laps used to be on this list; they earned their place once TCX and FIT reading made them real, and were added as the boundaries-only overlay above — note what stayed out: the per-lap *summary stats*, which we recompute rather than store.)
 
-The rule is: model a concept when a feature actually needs it, not because a file format happens to have it. Stacking and appending — the two jobs gpsmerge does — work on timestamped points, segment boundaries, and device identity. They do not need laps or waypoints, so adding them now would be speculative weight: more fields to keep consistent across every reader and writer, more invariants to defend, more for the next person to read past, all to support nothing that exists yet.
+The rule is: model a concept when a feature actually needs it, not because a file format happens to have it. Adding waypoints or GPS accuracy now would be speculative weight — more fields to keep consistent across every reader and writer, more invariants to defend, more for the next person to read past, all to support nothing that exists yet.
 
-This keeps the model small enough to hold in your head and the readers and writers honest. When a real milestone needs laps (TCX's lap structure is the obvious candidate, since TCX requires it — see `file-formats.md`), the field gets added then, with a reader and writer that exercise it and tests that prove it. Extracting structure from working code is easy; carrying speculative structure forever is not. The model's own module docstring states this intent directly, so the next engineer does not "helpfully" add the fields back.
+This keeps the model small enough to hold in your head and the readers and writers honest. When a real milestone needs one of these (a routing feature would need waypoints, say), the field gets added then, with a reader and writer that exercise it and tests that prove it — exactly how laps arrived. Extracting structure from working code is easy; carrying speculative structure forever is not.

@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timedelta
 
-from gpsmerge.model import Activity, Segment, TrackPoint
+from gpsmerge.model import Activity, Lap, Segment, TrackPoint
 
 # A smoothing window must be odd (so it is centred on its point) and at least
 # three wide (so it actually averages neighbours). The caller validates this; the
@@ -36,7 +36,8 @@ def shift_time(activity: Activity, offset: timedelta) -> Activity:
 
     Use this to correct a device whose clock was wrong: a constant offset is added
     to each point's time. A point with no time is left untouched, and positions and
-    every sensor channel are unchanged.
+    every sensor channel are unchanged. Each lap's span is shifted by the same
+    offset so the laps stay aligned with the points.
 
     Parameters
     ----------
@@ -54,7 +55,8 @@ def shift_time(activity: Activity, offset: timedelta) -> Activity:
         Segment(points=[_shifted(p, offset) for p in segment.points])
         for segment in activity.segments
     ]
-    return replace(activity, segments=segments)
+    laps = [_shifted_lap(lap, offset) for lap in activity.laps]
+    return replace(activity, segments=segments, laps=laps)
 
 
 def _shifted(point: TrackPoint, offset: timedelta) -> TrackPoint:
@@ -62,6 +64,16 @@ def _shifted(point: TrackPoint, offset: timedelta) -> TrackPoint:
     if point.time is None:
         return replace(point)
     return replace(point, time=point.time + offset)
+
+
+def _shifted_lap(lap: Lap, offset: timedelta) -> Lap:
+    """Return a copy of ``lap`` with its span moved by ``offset``.
+
+    The lap is a span on the same clock as the points, so it shifts by the same
+    constant. An open (``None``) end stays open.
+    """
+    end_time = None if lap.end_time is None else lap.end_time + offset
+    return replace(lap, start_time=lap.start_time + offset, end_time=end_time)
 
 
 def trim(activity: Activity, start: datetime | None, end: datetime | None) -> Activity:
@@ -77,6 +89,11 @@ def trim(activity: Activity, start: datetime | None, end: datetime | None) -> Ac
     subtracted from every point's distance (points with no distance are left
     ``None``). This keeps the written distance honest -- a trimmed track should read
     "0 km at the start", not inherit the offset of the points that were cut.
+
+    Laps follow the same window: a lap that overlaps ``[start, end]`` is kept but
+    clipped to the window (its start pulled up to ``start``, its end pushed down to
+    ``end``), and a lap that falls entirely outside is dropped. An open bound does
+    not clip on that side.
 
     Parameters
     ----------
@@ -100,7 +117,10 @@ def trim(activity: Activity, start: datetime | None, end: datetime | None) -> Ac
             segments.append(Segment(points=kept))
 
     _rebase_distance(segments)
-    return replace(activity, segments=segments)
+    laps = [
+        clipped for lap in activity.laps if (clipped := _clipped_lap(lap, start, end))
+    ]
+    return replace(activity, segments=segments, laps=laps)
 
 
 def _in_range(
@@ -116,6 +136,38 @@ def _in_range(
     if end is not None and point.time > end:
         return False
     return True
+
+
+def _clipped_lap(lap: Lap, start: datetime | None, end: datetime | None) -> Lap | None:
+    """Clip a lap to the kept window, or return ``None`` if it falls outside it.
+
+    The lap span ``[lap.start_time, lap.end_time]`` is intersected with the
+    (possibly open) window ``[start, end]``. A ``None`` lap end means the lap runs
+    to the activity's end, so it is treated as unbounded above; a ``None`` window
+    bound is unbounded on that side and never clips. The lap survives only when the
+    two spans actually overlap.
+    """
+    # No overlap if the lap ends before the window starts...
+    if start is not None and lap.end_time is not None and lap.end_time < start:
+        return None
+    # ...or begins after the window ends.
+    if end is not None and lap.start_time > end:
+        return None
+
+    new_start = lap.start_time if start is None else max(lap.start_time, start)
+    new_end = _clipped_lap_end(lap.end_time, end)
+    return replace(lap, start_time=new_start, end_time=new_end)
+
+
+def _clipped_lap_end(lap_end: datetime | None, end: datetime | None) -> datetime | None:
+    """Push a lap's end down to the window end, leaving an open side unbounded."""
+    if end is None:
+        # Open window end: the lap end stays as it was, including ``None``.
+        return lap_end
+    if lap_end is None:
+        # Lap ran to the activity's end; the window now caps it at ``end``.
+        return end
+    return min(lap_end, end)
 
 
 def _rebase_distance(segments: list[Segment]) -> None:
@@ -184,7 +236,9 @@ def smooth_elevation(activity: Activity, window: int) -> Activity:
         Segment(points=[_with_ele(p, next(new_eles)) for p in segment.points])
         for segment in activity.segments
     ]
-    return replace(activity, segments=segments)
+    # Smoothing changes only elevation, not the timeline, so lap spans are unchanged.
+    laps = [replace(lap) for lap in activity.laps]
+    return replace(activity, segments=segments, laps=laps)
 
 
 def _averaged(elevations: list[float | None], half: int) -> list[float | None]:
@@ -237,7 +291,9 @@ def insert_stopped_time(activity: Activity, threshold_s: float) -> Activity:
     segments: list[Segment] = []
     for segment in activity.segments:
         segments.extend(_split_on_gaps(segment, threshold_s))
-    return replace(activity, segments=segments)
+    # Re-segmenting only regroups points; lap spans over the timeline are unchanged.
+    laps = [replace(lap) for lap in activity.laps]
+    return replace(activity, segments=segments, laps=laps)
 
 
 def _split_on_gaps(segment: Segment, threshold_s: float) -> list[Segment]:

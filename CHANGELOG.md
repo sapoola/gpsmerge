@@ -36,6 +36,7 @@ All notable changes to this project are documented here. The format is based on 
 - Post-merge transforms: `--shift` adds a signed duration to every timestamp (fix a wrong device clock); `--trim-start`/`--trim-end` crop to a sub-range and re-base distance to start at zero; `--smooth-elevation <window>` runs a centred moving average over noisy GPS elevation; `--insert-stopped-time` turns long non-moving gaps into pauses so they stop counting as moving time.
 - A polished guided wizard: an ASCII banner on launch, numbered section steps with friendly plain-language prompts, an encouraging auto-detect summary, and a green "Done" panel summarising the merged file with a tip to save the run as a profile. The banner appears only in the interactive wizard, never when piped or in CI.
 - `--out` is now optional for `--dry-run` (a preview writes nothing, so it no longer needs an output path); a real write without `--out` is a clear usage error.
+- Lap support: gpsmerge reads laps from TCX and FIT and writes them to TCX, as a boundaries-only overlay (start, end, trigger) kept separate from pause segments — so a pause inside a lap and a lap inside a segment both survive. Laps carry through append (concatenated, time-shifted to match), stack (from the master), and the `--shift`/`--trim` transforms; per-lap totals are recomputed on write so they never go stale. GPX has no lap concept, so laps are dropped on GPX write.
 
 <!--
 Release reference links. Nothing is released yet, so [Unreleased] points at the

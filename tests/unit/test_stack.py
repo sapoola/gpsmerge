@@ -9,6 +9,7 @@ build tiny in-code activities and assert that behaviour, not the internals.
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -16,7 +17,7 @@ import pytest
 
 from gpsmerge.config import Settings
 from gpsmerge.merge import stack
-from gpsmerge.model import Activity, Device, Segment, TrackPoint
+from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
 
 WATCH_PATH = Path("watch.gpx")
 TRAINER_PATH = Path("trainer.gpx")
@@ -382,6 +383,47 @@ def test_indoor_master_is_the_input_with_more_points() -> None:
     assert len(list(merged.points())) == 3  # its timeline
     # Its recorded distance is kept (there is no GPS to recompute from).
     assert [p.distance for p in merged.points()] == [0.0, 50.0, 110.0]
+
+
+@pytest.mark.unit
+def test_stack_with_no_laps_produces_no_laps() -> None:
+    # Neither the master nor the donor carries laps, so neither does the merge.
+    watch, trainer = _watch(), _trainer()
+    merged = stack([watch, trainer], _settings(position_from=WATCH_PATH))
+    assert merged.laps == []
+
+
+@pytest.mark.unit
+def test_stack_laps_come_from_the_master_only() -> None:
+    # The master supplies the timeline, so its laps apply; the donor's laps,
+    # which describe a different timeline, are ignored.
+    watch, trainer = _watch(), _trainer()
+    master_lap = Lap(
+        start_time=_BASE, end_time=_BASE + timedelta(seconds=20), trigger="manual"
+    )
+    watch.laps = [master_lap]
+    trainer.laps = [
+        Lap(
+            start_time=_BASE + timedelta(seconds=5),
+            end_time=_BASE + timedelta(seconds=15),
+            trigger="distance",
+        )
+    ]
+    merged = stack([watch, trainer], _settings(position_from=WATCH_PATH))
+    assert [(lap.start_time, lap.end_time, lap.trigger) for lap in merged.laps] == [
+        (_BASE, _BASE + timedelta(seconds=20), "manual")
+    ]
+
+
+@pytest.mark.unit
+def test_stack_does_not_mutate_the_masters_laps() -> None:
+    watch, trainer = _watch(), _trainer()
+    watch.laps = [
+        Lap(start_time=_BASE, end_time=_BASE + timedelta(seconds=20), trigger="manual")
+    ]
+    lap_before = replace(watch.laps[0])
+    stack([watch, trainer], _settings(position_from=WATCH_PATH))
+    assert watch.laps[0] == lap_before
 
 
 @pytest.mark.unit

@@ -15,6 +15,7 @@ import pytest
 from fit_tool.fit_file_builder import FitFileBuilder
 from fit_tool.profile.messages.event_message import EventMessage
 from fit_tool.profile.messages.file_id_message import FileIdMessage
+from fit_tool.profile.messages.lap_message import LapMessage
 from fit_tool.profile.messages.record_message import RecordMessage
 from fit_tool.profile.messages.sport_message import SportMessage
 from fit_tool.profile.profile_type import (
@@ -22,6 +23,7 @@ from fit_tool.profile.profile_type import (
     EventType,
     FileType,
     GarminProduct,
+    LapTrigger,
     Manufacturer,
     Sport,
 )
@@ -221,6 +223,127 @@ def test_read_fit_splits_segments_at_a_timer_stop(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_read_fit_reads_laps_with_spans_and_normalised_triggers(
+    tmp_path: Path,
+) -> None:
+    # Two laps over a single continuous run of records. The reader should pick up
+    # each lap's start/end span and normalise its FIT trigger.
+    messages = [
+        _file_id(),
+        _record_at(0),
+        _record_at(10),
+        _lap(0, 10, LapTrigger.MANUAL),
+        _record_at(20),
+        _lap(10, 20, LapTrigger.SESSION_END),
+    ]
+    path = _write_fit(tmp_path, messages)
+    activity = read_fit(path)
+
+    assert len(activity.laps) == 2
+
+    first, second = activity.laps
+    assert first.start_time == _BASE
+    assert first.end_time == _BASE + datetime.timedelta(seconds=10)
+    assert first.trigger == "manual"
+
+    assert second.start_time == _BASE + datetime.timedelta(seconds=10)
+    assert second.end_time == _BASE + datetime.timedelta(seconds=20)
+    assert second.trigger == "session_end"
+
+    # Lap timestamps obey the model's UTC rule.
+    assert first.start_time.tzinfo is not None
+    assert first.start_time.utcoffset() == datetime.timedelta(0)
+
+
+@pytest.mark.unit
+def test_read_fit_normalises_each_lap_trigger_family(tmp_path: Path) -> None:
+    # One lap per trigger family the model recognises, plus the two position
+    # variants that both collapse to "position", and an unmodelled trigger that
+    # reads as None.
+    messages = [
+        _file_id(),
+        _record_at(0),
+        _lap(0, 1, LapTrigger.MANUAL),
+        _lap(1, 2, LapTrigger.DISTANCE),
+        _lap(2, 3, LapTrigger.TIME),
+        _lap(3, 4, LapTrigger.POSITION_START),
+        _lap(4, 5, LapTrigger.POSITION_LAP),
+        _lap(5, 6, LapTrigger.SESSION_END),
+        _lap(6, 7, LapTrigger.FITNESS_EQUIPMENT),
+    ]
+    path = _write_fit(tmp_path, messages)
+    triggers = [lap.trigger for lap in read_fit(path).laps]
+
+    assert triggers == [
+        "manual",
+        "distance",
+        "time",
+        "position",  # position_start
+        "position",  # position_lap collapses to the same canonical trigger
+        "session_end",
+        None,  # fitness_equipment is unmodelled
+    ]
+
+
+@pytest.mark.unit
+def test_read_fit_laps_are_independent_of_segment_boundaries(tmp_path: Path) -> None:
+    # A single lap spans a timer pause: the pause splits the records into two
+    # segments, but the lap is one continuous span over both. Laps and segments
+    # are independent overlays, so the lap is not cut at the pause.
+    messages = [
+        _file_id(),
+        _timer(0, EventType.START),
+        _record_at(0),
+        _record_at(1),
+        _timer(2, EventType.STOP),
+        _timer(60, EventType.START),
+        _record_at(60),
+        _timer(61, EventType.STOP_ALL),
+        _lap(0, 61, LapTrigger.MANUAL),
+    ]
+    path = _write_fit(tmp_path, messages)
+    activity = read_fit(path)
+
+    # Segments still split at the pause exactly as without laps present.
+    assert len(activity.segments) == 2
+    assert len(activity.segments[0].points) == 2
+    assert len(activity.segments[1].points) == 1
+
+    # The single lap spans the whole activity, across the segment boundary.
+    assert len(activity.laps) == 1
+    only_lap = activity.laps[0]
+    assert only_lap.start_time == _BASE
+    assert only_lap.end_time == _BASE + datetime.timedelta(seconds=61)
+
+
+@pytest.mark.unit
+def test_read_fit_without_lap_messages_has_no_laps(tmp_path: Path) -> None:
+    # A file with records but no lap messages reads back with an empty lap list,
+    # leaving existing lap-free behaviour unchanged.
+    path = _write_fit(tmp_path, [_file_id(), _record_at(0), _record_at(1)])
+    activity = read_fit(path)
+
+    assert activity.laps == []
+    assert len(list(activity.points())) == 2
+
+
+@pytest.mark.unit
+def test_read_fit_sorts_laps_by_start_time(tmp_path: Path) -> None:
+    # Lap messages emitted out of chronological order are sorted into a
+    # timeline-ordered overlay.
+    messages = [
+        _file_id(),
+        _record_at(0),
+        _lap(10, 20, LapTrigger.MANUAL),
+        _lap(0, 10, LapTrigger.MANUAL),
+    ]
+    path = _write_fit(tmp_path, messages)
+    starts = [lap.start_time for lap in read_fit(path).laps]
+
+    assert starts == [_BASE, _BASE + datetime.timedelta(seconds=10)]
+
+
+@pytest.mark.unit
 def test_read_fit_to_gpx_round_trip_keeps_supported_channels(tmp_path: Path) -> None:
     # Read a FIT fixture, write it to GPX, read it back, and confirm the channels
     # GPX can carry survive the hop. (GPX has no per-point distance or speed in
@@ -270,6 +393,20 @@ def _timer(seconds: int, event_type: EventType) -> EventMessage:
     event.event = Event.TIMER.value
     event.event_type = event_type.value
     return event
+
+
+def _lap(start_seconds: int, end_seconds: int, trigger: LapTrigger) -> LapMessage:
+    """A lap spanning [`start_seconds`, `end_seconds`] past base, with `trigger`.
+
+    A FIT lap stores its start under ``start_time`` and its end under
+    ``timestamp`` (the message timestamp), which is what the reader maps onto the
+    model :class:`~gpsmerge.model.Lap` span.
+    """
+    lap = LapMessage()
+    lap.start_time = _ms(start_seconds)
+    lap.timestamp = _ms(end_seconds)
+    lap.lap_trigger = trigger.value
+    return lap
 
 
 @pytest.mark.unit

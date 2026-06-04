@@ -32,7 +32,7 @@ from typing import Any, Protocol
 import fitdecode
 
 from gpsmerge.geo import semicircles_to_degrees
-from gpsmerge.model import Activity, Device, Segment, TrackPoint
+from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
 
 SOURCE_FORMAT = "fit"
 
@@ -41,6 +41,21 @@ SOURCE_FORMAT = "fit"
 # resumes recording. These are the boundaries between our segments.
 _TIMER_EVENT = "timer"
 _STOP_EVENT_TYPES = frozenset({"stop", "stop_all"})
+
+# Map the FIT ``lap_trigger`` enum (decoded to a lowercase string by fitdecode)
+# to our canonical trigger set. FIT distinguishes several position triggers
+# (``position_start``, ``position_lap``, ...); we collapse the whole family to
+# ``"position"`` because the model only records that a lap was position-based.
+# Anything else (e.g. ``fitness_equipment``) is an unmodelled trigger and reads
+# as ``None``.
+_LAP_TRIGGERS = {
+    "manual": "manual",
+    "distance": "distance",
+    "time": "time",
+    "session_end": "session_end",
+}
+_POSITION_TRIGGER_PREFIX = "position"
+_POSITION_TRIGGER = "position"
 
 # Map the FIT ``sport`` enum (already decoded to a lowercase string by fitdecode)
 # to our canonical sport. The values we care about already match, but going via
@@ -56,6 +71,8 @@ def read_fit(path: Path) -> Activity:
     the device identity and creation time; ``sport`` (or ``session``) supplies
     the sport. Records are grouped into :class:`Segment` runs split at each
     ``timer`` ``stop`` event, so recording pauses survive as segment boundaries.
+    Each ``lap`` message becomes a :class:`Lap` overlay (span plus normalised
+    trigger), kept independent of those segment boundaries.
 
     Parameters
     ----------
@@ -80,12 +97,20 @@ def read_fit(path: Path) -> Activity:
     segments: list[Segment] = []
     current = Segment()
 
+    # Laps are collected separately from segments: a ``lap`` message carries its
+    # own span, independent of where recording paused.
+    laps: list[Lap] = []
+
     with fitdecode.FitReader(path) as reader:
         for frame in reader:
             if not isinstance(frame, fitdecode.FitDataMessage):
                 continue
             if frame.name == "record":
                 current.points.append(_read_point(frame))
+            elif frame.name == "lap":
+                lap = _read_lap(frame)
+                if lap is not None:
+                    laps.append(lap)
             elif frame.name == "file_id":
                 device = _read_device(frame)
                 time_created = _get_time(frame, "time_created")
@@ -97,10 +122,17 @@ def read_fit(path: Path) -> Activity:
     if current.points:
         segments.append(current)
 
+    # Laps are appended in file order, which is normally already chronological;
+    # sort defensively so a file with out-of-order lap messages still yields a
+    # timeline-ordered overlay. A lap with no start_time cannot be placed and is
+    # dropped by _read_lap, so every lap here has a start_time to sort on.
+    laps.sort(key=lambda lap: lap.start_time)
+
     return Activity(
         sport=sport,
         device=device,
         segments=segments,
+        laps=laps,
         time_created=_to_utc(time_created),
         source_format=SOURCE_FORMAT,
         source_path=str(path),
@@ -128,6 +160,40 @@ def _read_point(frame: fitdecode.FitDataMessage) -> TrackPoint:
         temp=_get_float(frame, "temperature"),
         speed=_prefer(_get_float(frame, "enhanced_speed"), _get_float(frame, "speed")),
     )
+
+
+def _read_lap(frame: fitdecode.FitDataMessage) -> Lap | None:
+    """Convert one ``lap`` message to a :class:`Lap`, or ``None`` if unplaceable.
+
+    A FIT ``lap`` records the span as ``start_time`` (lap start) and ``timestamp``
+    (lap end), both decoded to tz-aware UTC, plus ``lap_trigger`` (why the lap
+    ended). We store only that span and the normalised trigger; per-lap totals are
+    recomputed from the points on write. A lap with no ``start_time`` cannot be
+    positioned on the timeline, so it is dropped (``None``) rather than guessed at.
+    """
+    start_time = _to_utc(_get_time(frame, "start_time"))
+    if start_time is None:
+        return None
+    return Lap(
+        start_time=start_time,
+        end_time=_to_utc(_get_time(frame, "timestamp")),
+        trigger=_normalise_lap_trigger(_get_str(frame, "lap_trigger")),
+    )
+
+
+def _normalise_lap_trigger(trigger: str | None) -> str | None:
+    """Map a decoded FIT ``lap_trigger`` to our canonical set, or ``None``.
+
+    The several FIT position triggers (``position_start``, ``position_lap``, ...)
+    all collapse to ``"position"``; ``manual``/``distance``/``time``/
+    ``session_end`` map straight through; anything else is unmodelled and reads as
+    ``None``.
+    """
+    if trigger is None:
+        return None
+    if trigger.startswith(_POSITION_TRIGGER_PREFIX):
+        return _POSITION_TRIGGER
+    return _LAP_TRIGGERS.get(trigger)
 
 
 def _read_device(frame: fitdecode.FitDataMessage) -> Device:

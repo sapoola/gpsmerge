@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import pytest
 
 from gpsmerge.config import Settings
 from gpsmerge.merge import append
-from gpsmerge.model import Activity, Device, Segment, TrackPoint
+from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
 
 A_PATH = Path("a.gpx")
 B_PATH = Path("b.gpx")
@@ -250,3 +251,57 @@ def test_append_does_not_mutate_the_inputs() -> None:
     append(activities, _settings(gap_policy="shift", recompute_distance=True))
     assert [p.time for p in activities[0].points()] == original_times
     assert [p.distance for p in activities[0].points()] == original_distances
+
+
+@pytest.mark.unit
+def test_append_with_no_laps_produces_no_laps() -> None:
+    # The two sequential inputs carry no laps, so neither should the merge.
+    merged = append(_two_sequential(), _settings())
+    assert merged.laps == []
+
+
+def _two_sequential_with_laps() -> list[Activity]:
+    """The two sequential inputs, each carrying one lap over its own span."""
+    first, second = _two_sequential()
+    first.laps = [
+        Lap(start_time=_BASE, end_time=_BASE + timedelta(seconds=10), trigger="manual")
+    ]
+    second.laps = [
+        Lap(
+            start_time=_BASE + timedelta(seconds=300),
+            end_time=_BASE + timedelta(seconds=310),
+            trigger="distance",
+        )
+    ]
+    return [first, second]
+
+
+@pytest.mark.unit
+def test_append_carries_both_laps_in_time_order_under_pause() -> None:
+    # Under "pause" the offset is zero, so laps keep their recorded times.
+    first, second = _two_sequential_with_laps()
+    merged = append([second, first], _settings(gap_policy="pause"))
+    assert [(lap.start_time, lap.end_time, lap.trigger) for lap in merged.laps] == [
+        (_BASE, _BASE + timedelta(seconds=10), "manual"),
+        (_BASE + timedelta(seconds=300), _BASE + timedelta(seconds=310), "distance"),
+    ]
+
+
+@pytest.mark.unit
+def test_append_shifts_the_later_laps_to_stay_continuous() -> None:
+    # Under "shift" the second recording moves to start one 10 s sample after the
+    # first ends (t=20 s); its lap moves by the same offset (from 300/310 to 20/30).
+    first, second = _two_sequential_with_laps()
+    merged = append([first, second], _settings(gap_policy="shift"))
+    assert [(lap.start_time, lap.end_time, lap.trigger) for lap in merged.laps] == [
+        (_BASE, _BASE + timedelta(seconds=10), "manual"),
+        (_BASE + timedelta(seconds=20), _BASE + timedelta(seconds=30), "distance"),
+    ]
+
+
+@pytest.mark.unit
+def test_append_does_not_mutate_the_inputs_laps() -> None:
+    first, second = _two_sequential_with_laps()
+    second_lap_before = replace(second.laps[0])
+    append([first, second], _settings(gap_policy="shift"))
+    assert second.laps[0] == second_lap_before

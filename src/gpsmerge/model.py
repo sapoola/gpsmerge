@@ -11,10 +11,10 @@ Two rules hold everywhere in this model and are relied on by the merge logic:
   rate is ``None``, not ``0`` bpm.
 - Every timestamp is timezone-aware UTC.
 
-The model is deliberately minimal. Concepts that no current feature needs yet --
-laps, route waypoints, GPS accuracy, and arbitrary device-specific fields -- are
-left out on purpose and added when a milestone actually requires them, rather than
-modelled speculatively. See ``docs/data-model.md``.
+The model is deliberately minimal. Laps are a boundaries-only overlay (see
+:class:`Lap`); route waypoints, GPS accuracy, and arbitrary device-specific fields
+are still left out on purpose and added when a milestone actually requires them,
+rather than modelled speculatively. See ``docs/data-model.md``.
 """
 
 from __future__ import annotations
@@ -81,6 +81,33 @@ class Segment:
 
 
 @dataclass(slots=True)
+class Lap:
+    """A labelled span of an activity -- an interval or an auto-lap.
+
+    A lap is an overlay on the timeline, kept separate from segment (pause)
+    boundaries: one continuous segment can hold many laps, and a pause is not
+    necessarily a lap boundary, so laps and segments are independent lists. Only
+    the span and the trigger are stored; per-lap summary totals (time, distance,
+    averages) are recomputed from the points that fall in the span when writing,
+    so they always match the (possibly merged) data instead of going stale.
+
+    Attributes
+    ----------
+    start_time : datetime
+        Timezone-aware UTC start of the lap.
+    end_time : datetime or None
+        Timezone-aware UTC end of the lap; ``None`` runs to the activity's end.
+    trigger : str or None
+        Why the lap ended, when the file records it: ``"manual"``, ``"distance"``,
+        ``"time"``, ``"position"``, or ``"session_end"``.
+    """
+
+    start_time: datetime
+    end_time: datetime | None = None
+    trigger: str | None = None
+
+
+@dataclass(slots=True)
 class Device:
     """The device that recorded an activity, used for device attribution.
 
@@ -122,6 +149,9 @@ class Activity:
         Who recorded it (see :class:`Device`).
     segments : list of Segment
         The recording, split into continuous runs at every pause.
+    laps : list of Lap
+        Lap markers over the timeline (empty when the source has no laps, e.g.
+        GPX). Independent of segment boundaries.
     time_created : datetime or None
         When the file says the activity was created, if recorded.
     source_path : str or None
@@ -134,6 +164,7 @@ class Activity:
     name: str | None = None
     device: Device = field(default_factory=Device)
     segments: list[Segment] = field(default_factory=list)
+    laps: list[Lap] = field(default_factory=list)
     time_created: datetime | None = None
     source_path: str | None = None
     source_format: str | None = None

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from lxml.etree import LxmlError
 
-from gpsmerge.model import Activity, Device, Segment, TrackPoint
+from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
 from gpsmerge.tcx import read_tcx, write_tcx
 
 
@@ -463,3 +463,221 @@ def test_write_treats_non_finite_channel_values_as_absent(
     text = path.read_text(encoding="utf-8")
     assert "nan" not in text.lower()
     assert "inf" not in text.lower()
+
+
+# --- Laps -----------------------------------------------------------------
+
+# A TCX namespace map for asserting on the written XML structure directly.
+_NSMAP = {"t": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
+
+
+def _track_counts_per_lap(path: Path) -> list[int]:
+    """Return the number of ``<Track>`` elements inside each written ``<Lap>``."""
+    from lxml import etree
+
+    root = etree.parse(str(path)).getroot()
+    laps = root.findall(".//t:Lap", namespaces=_NSMAP)
+    return [len(lap.findall("t:Track", namespaces=_NSMAP)) for lap in laps]
+
+
+# A two-lap TCX. The first lap holds a pause: two <Track> elements with a gap
+# between them. The second lap is a single track. This exercises laps and
+# segments being independent -- one lap can span a pause.
+_TWO_LAP_TCX = """<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase
+    xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+ <Activities>
+  <Activity Sport="Biking">
+   <Id>2026-06-03T08:00:00Z</Id>
+   <Lap StartTime="2026-06-03T08:00:00Z">
+    <TotalTimeSeconds>120</TotalTimeSeconds>
+    <DistanceMeters>100</DistanceMeters>
+    <Calories>0</Calories>
+    <Intensity>Active</Intensity>
+    <TriggerMethod>Distance</TriggerMethod>
+    <Track>
+     <Trackpoint>
+      <Time>2026-06-03T08:00:00Z</Time>
+      <DistanceMeters>0</DistanceMeters>
+     </Trackpoint>
+     <Trackpoint>
+      <Time>2026-06-03T08:00:30Z</Time>
+      <DistanceMeters>40</DistanceMeters>
+     </Trackpoint>
+    </Track>
+    <Track>
+     <Trackpoint>
+      <Time>2026-06-03T08:01:30Z</Time>
+      <DistanceMeters>70</DistanceMeters>
+     </Trackpoint>
+     <Trackpoint>
+      <Time>2026-06-03T08:02:00Z</Time>
+      <DistanceMeters>100</DistanceMeters>
+     </Trackpoint>
+    </Track>
+   </Lap>
+   <Lap StartTime="2026-06-03T08:02:01Z">
+    <TotalTimeSeconds>59</TotalTimeSeconds>
+    <DistanceMeters>50</DistanceMeters>
+    <Calories>0</Calories>
+    <Intensity>Active</Intensity>
+    <TriggerMethod>Manual</TriggerMethod>
+    <Track>
+     <Trackpoint>
+      <Time>2026-06-03T08:02:01Z</Time>
+      <DistanceMeters>110</DistanceMeters>
+     </Trackpoint>
+     <Trackpoint>
+      <Time>2026-06-03T08:03:00Z</Time>
+      <DistanceMeters>150</DistanceMeters>
+     </Trackpoint>
+    </Track>
+   </Lap>
+  </Activity>
+ </Activities>
+</TrainingCenterDatabase>
+"""
+
+
+@pytest.mark.unit
+def test_read_parses_laps_independently_of_segments(tmp_path: Path) -> None:
+    # Two <Lap> elements become two model laps with their start times and mapped
+    # triggers, while the pause inside the first lap still shows up as a separate
+    # segment -- laps and segments are independent overlays on the timeline.
+    path = tmp_path / "two_laps.tcx"
+    path.write_text(_TWO_LAP_TCX, encoding="utf-8")
+
+    activity = read_tcx(path)
+
+    assert len(activity.laps) == 2
+    assert activity.laps[0].start_time == datetime(2026, 6, 3, 8, 0, 0, tzinfo=UTC)
+    assert activity.laps[1].start_time == datetime(2026, 6, 3, 8, 2, 1, tzinfo=UTC)
+    # TriggerMethod Distance/Manual map to our distance/manual.
+    assert activity.laps[0].trigger == "distance"
+    assert activity.laps[1].trigger == "manual"
+    # end_time = start + TotalTimeSeconds when present.
+    assert activity.laps[0].end_time == datetime(2026, 6, 3, 8, 2, 0, tzinfo=UTC)
+    # Three <Track> elements (two in the first lap, one in the second) mean three
+    # segments: the pause inside lap one survives as its own segment boundary.
+    assert len(activity.segments) == 3
+
+
+@pytest.mark.unit
+def test_round_trip_preserves_laps_and_every_point_and_inner_pause(
+    tmp_path: Path,
+) -> None:
+    # Read a two-lap file, write it back, and read again. Both laps survive with
+    # their start times and triggers, every point survives, and the pause inside
+    # the first lap is preserved as two <Track> elements within that lap.
+    source = tmp_path / "two_laps.tcx"
+    source.write_text(_TWO_LAP_TCX, encoding="utf-8")
+    original = read_tcx(source)
+
+    written = tmp_path / "round_trip.tcx"
+    write_tcx(original, written)
+    result = read_tcx(written)
+
+    # Two laps survive, with their start times and triggers intact.
+    assert len(result.laps) == 2
+    assert [lap.start_time for lap in result.laps] == [
+        datetime(2026, 6, 3, 8, 0, 0, tzinfo=UTC),
+        datetime(2026, 6, 3, 8, 2, 1, tzinfo=UTC),
+    ]
+    assert [lap.trigger for lap in result.laps] == ["distance", "manual"]
+
+    # Every point survives the round-trip, in order.
+    original_times = [p.time for p in original.points()]
+    result_times = [p.time for p in result.points()]
+    assert result_times == original_times
+    assert len(result_times) == 6
+
+    # The pause inside the first lap is written as two tracks; the second lap is
+    # a single track. So the written file has [2, 1] tracks across its two laps.
+    assert _track_counts_per_lap(written) == [2, 1]
+
+
+@pytest.mark.unit
+def test_write_recomputes_lap_summaries_from_its_own_points(tmp_path: Path) -> None:
+    # A lap's TotalTimeSeconds and DistanceMeters are recomputed from the points
+    # that fall in the lap, not copied from any stored value -- so they track the
+    # data. Partitioning is by start time: a point at exactly a lap's start_time
+    # belongs to that (later) lap, so the 9:02:00 boundary point joins lap 2.
+    points = [
+        TrackPoint(time=datetime(2026, 6, 3, 9, 0, 0, tzinfo=UTC), distance=0.0),
+        TrackPoint(time=datetime(2026, 6, 3, 9, 1, 0, tzinfo=UTC), distance=120.0),
+        TrackPoint(time=datetime(2026, 6, 3, 9, 2, 0, tzinfo=UTC), distance=200.0),
+        TrackPoint(time=datetime(2026, 6, 3, 9, 2, 30, tzinfo=UTC), distance=260.0),
+    ]
+    activity = Activity(
+        sport="cycling",
+        segments=[Segment(points=points)],
+        laps=[
+            Lap(start_time=datetime(2026, 6, 3, 9, 0, 0, tzinfo=UTC), trigger="time"),
+            Lap(start_time=datetime(2026, 6, 3, 9, 2, 0, tzinfo=UTC), trigger="manual"),
+        ],
+    )
+    path = tmp_path / "recompute.tcx"
+
+    write_tcx(activity, path)
+
+    from lxml import etree
+
+    root = etree.parse(str(path)).getroot()
+    laps = root.findall(".//t:Lap", namespaces=_NSMAP)
+    first_seconds = laps[0].findtext("t:TotalTimeSeconds", namespaces=_NSMAP)
+    first_distance = laps[0].findtext("t:DistanceMeters", namespaces=_NSMAP)
+    second_seconds = laps[1].findtext("t:TotalTimeSeconds", namespaces=_NSMAP)
+    second_distance = laps[1].findtext("t:DistanceMeters", namespaces=_NSMAP)
+
+    # Lap 1 holds the 9:00:00 and 9:01:00 points: 60 s, 120 m (120 - 0).
+    assert float(first_seconds) == pytest.approx(60.0)
+    assert float(first_distance) == pytest.approx(120.0)
+    # Lap 2 holds the 9:02:00 and 9:02:30 points: 30 s, 60 m (260 - 200).
+    assert float(second_seconds) == pytest.approx(30.0)
+    assert float(second_distance) == pytest.approx(60.0)
+    # The mapped triggers landed on the wire too.
+    assert laps[0].findtext("t:TriggerMethod", namespaces=_NSMAP) == "Time"
+    assert laps[1].findtext("t:TriggerMethod", namespaces=_NSMAP) == "Manual"
+
+
+@pytest.mark.unit
+def test_empty_laps_still_writes_a_single_synthetic_lap(tmp_path: Path) -> None:
+    # An activity with laps=[] (e.g. read from GPX) keeps the old behaviour: one
+    # synthetic <Lap> spanning the activity, with one <Track> per segment.
+    activity = _sample_activity()
+    assert activity.laps == []
+    path = tmp_path / "synthetic.tcx"
+
+    write_tcx(activity, path)
+    result = read_tcx(path)
+
+    # One synthetic lap is written, spanning both segments.
+    assert _track_counts_per_lap(path) == [2]
+    # Reading it back surfaces that single lap.
+    assert len(result.laps) == 1
+    # Its start time is the activity's first point time.
+    assert result.laps[0].start_time == datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC)
+
+
+@pytest.mark.unit
+def test_point_before_first_lap_start_joins_the_first_lap(tmp_path: Path) -> None:
+    # A point recorded before the first lap's start_time must not be lost: it is
+    # assigned to the first lap by the start-time partition.
+    early = TrackPoint(time=datetime(2026, 6, 3, 7, 59, 0, tzinfo=UTC), distance=0.0)
+    on_time = TrackPoint(time=datetime(2026, 6, 3, 8, 0, 5, tzinfo=UTC), distance=10.0)
+    activity = Activity(
+        sport="cycling",
+        segments=[Segment(points=[early, on_time])],
+        laps=[Lap(start_time=datetime(2026, 6, 3, 8, 0, 0, tzinfo=UTC))],
+    )
+    path = tmp_path / "early.tcx"
+
+    write_tcx(activity, path)
+    result = read_tcx(path)
+
+    # The early point survived and lands in the single lap with the on-time one.
+    result_times = [p.time for p in result.points()]
+    assert result_times == [
+        datetime(2026, 6, 3, 7, 59, 0, tzinfo=UTC),
+        datetime(2026, 6, 3, 8, 0, 5, tzinfo=UTC),
+    ]
