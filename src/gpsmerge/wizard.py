@@ -32,11 +32,8 @@ from gpsmerge.merge import detect_mode
 from gpsmerge.model import Activity
 from gpsmerge.pipeline import RunResult
 from gpsmerge.pipeline import run as run_pipeline
-from gpsmerge.read import read
+from gpsmerge.read import READABLE_SUFFIXES, read
 from gpsmerge.timeutil import local_range, utc_range, zone_label
-
-# Extensions the wizard will accept as input files.
-SUPPORTED_SUFFIXES = (".gpx", ".tcx")
 
 # Minimum files a merge needs; fewer keeps the add-files loop going.
 MIN_INPUTS = 2
@@ -261,8 +258,8 @@ def _file_problem(path: Path) -> str | None:
         return f"I can't find {path} — check the path and try again."
     if not path.is_file():
         return f"{path} is a folder, not a file — point me at the file itself."
-    if path.suffix.lower() not in SUPPORTED_SUFFIXES:
-        supported = " or ".join(SUPPORTED_SUFFIXES)
+    if path.suffix.lower() not in READABLE_SUFFIXES:
+        supported = ", ".join(READABLE_SUFFIXES)
         return f"{path.name} isn't a format I can read (I take {supported})."
     return None
 

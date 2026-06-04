@@ -415,6 +415,17 @@ def test_declining_to_write_returns_zero_without_a_file(
 
 
 @pytest.mark.unit
+def test_fit_input_is_accepted_by_file_validation(tmp_path: Path) -> None:
+    # FIT is a headline read format, so the wizard must accept a .fit input.
+    # _file_problem checks existence and extension, not parseability, so an
+    # existing file with a .fit suffix is enough to prove the suffix is allowed.
+    fit_file = tmp_path / "ride.fit"
+    fit_file.write_bytes(b"")  # the bytes are not parsed by the validation step
+
+    assert wizard._file_problem(fit_file) is None
+
+
+@pytest.mark.unit
 def test_cancelling_at_a_prompt_returns_usage_exit_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

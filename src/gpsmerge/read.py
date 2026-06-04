@@ -15,6 +15,11 @@ from gpsmerge.gpx import read_gpx
 from gpsmerge.model import Activity
 from gpsmerge.tcx import read_tcx
 
+# The file extensions :func:`read` understands. One source of truth so the
+# wizard's file validation and prompt text never drift from what this module
+# actually parses.
+READABLE_SUFFIXES = (".gpx", ".tcx", ".fit")
+
 
 def read(path: Path) -> Activity:
     """Read a GPS file into the canonical :class:`~gpsmerge.model.Activity`.
@@ -38,7 +43,7 @@ def read(path: Path) -> Activity:
         If the file exists but cannot be read or parsed.
     """
     ext = path.suffix.lower()
-    if ext not in (".gpx", ".tcx", ".fit"):
+    if ext not in READABLE_SUFFIXES:
         raise UnsupportedFormat(
             f"cannot read {path.name}: {ext or 'no extension'} is not supported yet"
         )

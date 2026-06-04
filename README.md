@@ -11,18 +11,41 @@ Run it with no arguments for a guided wizard, or pass flags for scripting.
 
 ## Status
 
-Early development. See the build plan and milestones in the repository; the first usable release reads GPX/TCX/FIT and writes GPX/TCX.
+Working and usable, ahead of a first published release. gpsmerge reads GPX, TCX, and FIT, writes GPX and TCX, and merges in three ways: `append` for sequential recordings, `stack` for two recordings of the same ride, and `auto` to let the time overlap decide. On the way through it can apply optional transforms (time shift, trim, elevation smoothing, stopped-time insertion), save and reuse settings as named profiles, and walk you through the whole thing with an interactive wizard.
 
 ## Install
 
-Not yet published. For local development:
+Not yet published to a package index, so the current way to run it is from a local checkout with Poetry:
 
 ```bash
 poetry install
+poetry run gpsmerge            # the guided wizard
 poetry run gpsmerge --version
+poetry run gpsmerge run --help
 ```
 
-Once released, the intended install paths are `pipx install gpsmerge`, `uv tool install gpsmerge`, and a Homebrew tap (`brew tap <owner>/gpsmerge && brew install gpsmerge`).
+Once published, the intended install paths are `pipx install gpsmerge`, `uv tool install gpsmerge`, and a Homebrew tap (`brew tap <owner>/gpsmerge && brew install gpsmerge`). Until then, prefer the `poetry run gpsmerge` path above.
+
+## Quick start
+
+Run `gpsmerge` with no arguments for the guided wizard, which detects whether your files stack or append, shows a preview, and writes only once you confirm. To merge directly, use `gpsmerge run` (the examples below assume the tool is on your `PATH`; from a checkout, prefix each with `poetry run`):
+
+```bash
+# Append: a ride split across two recordings, into one GPX
+gpsmerge run morning.gpx evening.gpx --out ride.gpx
+
+# Stack: GPS from a watch, power and heart rate from a trainer
+gpsmerge run watch.fit trainer.tcx --mode stack \
+  --position-from watch.fit --power-from trainer.tcx --out ride.gpx
+
+# Auto: let gpsmerge decide whether to append or stack
+gpsmerge run a.gpx b.gpx --out merged.gpx
+
+# Preview only, writing nothing
+gpsmerge run a.gpx b.gpx --dry-run
+```
+
+Run `gpsmerge run --help` for the full set of flags (grouped into Output, Stacking, Appending, Transforms, Profiles, and Preview panels), `gpsmerge examples` for copy-pasteable commands, and `gpsmerge formats` for what each format can carry.
 
 ## Why not just use the website, or GPSBabel?
 

@@ -18,6 +18,7 @@ from pathlib import Path
 
 import typer
 from pydantic import ValidationError
+from rich.console import Console
 
 from gpsmerge import __version__, profiles, wizard
 from gpsmerge.config import Settings
@@ -31,6 +32,25 @@ app = typer.Typer(
     help="Merge GPX, TCX, and FIT activity files entirely on your machine.",
     add_completion=False,
 )
+
+# Route coloured output through rich rather than typer.secho. A rich Console
+# honours the NO_COLOR and FORCE_COLOR environment variables on its own, so the
+# decision to emit ANSI lives in one place instead of at every call site. Two
+# consoles keep the existing stdout/stderr split: errors and the no-output hint
+# go to stderr, the preview and its warnings go to stdout.
+_err_console = Console(stderr=True)
+_out_console = Console()
+
+
+def _error(message: str) -> None:
+    """Print an error to stderr in red (plain when colour is disabled)."""
+    _err_console.print(message, style="red")
+
+
+def _warn(message: str) -> None:
+    """Print a warning to stdout in yellow (plain when colour is disabled)."""
+    _out_console.print(message, style="yellow")
+
 
 # Each saveable profile key paired with the 'run' parameter that carries it.
 # Resolving a profile means, for each pair, choosing the command-line value when
@@ -91,65 +111,94 @@ def run(
         "--out",
         "-o",
         help="Where to write the merged file. Required unless --dry-run.",
+        rich_help_panel="Output",
     ),
     output_format: str = typer.Option(
-        "gpx", "--format", help="Output format: 'gpx' or 'tcx'."
-    ),
-    mode: str = typer.Option(
-        "auto",
-        "--mode",
-        help="How to combine the files: 'auto', 'append', or 'stack'.",
-    ),
-    max_gap_seconds: float = typer.Option(
-        10.0,
-        "--max-gap-seconds",
-        help="When stacking, do not interpolate a channel across a source gap "
-        "longer than this many seconds.",
-    ),
-    position_from: Path | None = typer.Option(
-        None,
-        "--position-from",
-        help="When stacking, which input provides position (default: best GPS).",
-    ),
-    hr_from: Path | None = typer.Option(
-        None, "--hr-from", help="When stacking, which input provides heart rate."
-    ),
-    cadence_from: Path | None = typer.Option(
-        None, "--cadence-from", help="When stacking, which input provides cadence."
-    ),
-    power_from: Path | None = typer.Option(
-        None, "--power-from", help="When stacking, which input provides power."
-    ),
-    temp_from: Path | None = typer.Option(
-        None, "--temp-from", help="When stacking, which input provides temperature."
-    ),
-    gap_policy: str = typer.Option(
-        "pause",
-        "--gap-policy",
-        help="When appending, how to treat the gap between recordings: "
-        "'pause' or 'shift'.",
-    ),
-    ignore_gaps_over_meters: float | None = typer.Option(
-        None,
-        "--ignore-gaps-over-meters",
-        help="Do not count a jump larger than this many metres towards distance.",
-    ),
-    dedupe: bool = typer.Option(
-        True, "--dedupe/--no-dedupe", help="Drop a duplicated point at the seam."
-    ),
-    recompute_distance: bool = typer.Option(
-        True,
-        "--recompute-distance/--no-recompute-distance",
-        help="Recompute distance from positions after merging.",
+        "gpx",
+        "--format",
+        help="Output format: 'gpx' or 'tcx'.",
+        rich_help_panel="Output",
     ),
     device_from: Path | None = typer.Option(
         None,
         "--device-from",
         help="Which input file's device the merged file is recorded under "
         "(default: the first input).",
+        rich_help_panel="Output",
     ),
     sport: str | None = typer.Option(
-        None, "--sport", help="Override the sport of the merged activity."
+        None,
+        "--sport",
+        help="Override the sport of the merged activity.",
+        rich_help_panel="Output",
+    ),
+    mode: str = typer.Option(
+        "auto",
+        "--mode",
+        help="How to combine the files: 'auto', 'append', or 'stack'.",
+        rich_help_panel="Stacking",
+    ),
+    max_gap_seconds: float = typer.Option(
+        10.0,
+        "--max-gap-seconds",
+        help="When stacking, do not interpolate a channel across a source gap "
+        "longer than this many seconds.",
+        rich_help_panel="Stacking",
+    ),
+    position_from: Path | None = typer.Option(
+        None,
+        "--position-from",
+        help="When stacking, which input provides position (default: best GPS).",
+        rich_help_panel="Stacking",
+    ),
+    hr_from: Path | None = typer.Option(
+        None,
+        "--hr-from",
+        help="When stacking, which input provides heart rate.",
+        rich_help_panel="Stacking",
+    ),
+    cadence_from: Path | None = typer.Option(
+        None,
+        "--cadence-from",
+        help="When stacking, which input provides cadence.",
+        rich_help_panel="Stacking",
+    ),
+    power_from: Path | None = typer.Option(
+        None,
+        "--power-from",
+        help="When stacking, which input provides power.",
+        rich_help_panel="Stacking",
+    ),
+    temp_from: Path | None = typer.Option(
+        None,
+        "--temp-from",
+        help="When stacking, which input provides temperature.",
+        rich_help_panel="Stacking",
+    ),
+    gap_policy: str = typer.Option(
+        "pause",
+        "--gap-policy",
+        help="When appending, how to treat the gap between recordings: "
+        "'pause' or 'shift'.",
+        rich_help_panel="Appending",
+    ),
+    ignore_gaps_over_meters: float | None = typer.Option(
+        None,
+        "--ignore-gaps-over-meters",
+        help="Do not count a jump larger than this many metres towards distance.",
+        rich_help_panel="Appending",
+    ),
+    dedupe: bool = typer.Option(
+        True,
+        "--dedupe/--no-dedupe",
+        help="Drop a duplicated point at the seam.",
+        rich_help_panel="Appending",
+    ),
+    recompute_distance: bool = typer.Option(
+        True,
+        "--recompute-distance/--no-recompute-distance",
+        help="Recompute distance from positions after merging.",
+        rich_help_panel="Appending",
     ),
     timezone: str | None = typer.Option(
         None,
@@ -157,59 +206,78 @@ def run(
         help="Show the preview's times in this zone (display only; the file "
         "stays UTC). An IANA name like 'Europe/Amsterdam' (auto-handles summer "
         "time) or a fixed offset like '+02:00'.",
+        rich_help_panel="Transforms",
     ),
     shift: str | None = typer.Option(
         None,
         "--shift",
         help="Add a signed duration to every timestamp to fix a wrong device "
         "clock, e.g. '+1h', '-30m', '90s', or '+1:30:00'.",
+        rich_help_panel="Transforms",
     ),
     trim_start: str | None = typer.Option(
         None,
         "--trim-start",
         help="Drop points before this ISO time, e.g. '2026-06-04T08:30:00Z'.",
+        rich_help_panel="Transforms",
     ),
     trim_end: str | None = typer.Option(
         None,
         "--trim-end",
         help="Drop points after this ISO time, e.g. '2026-06-04T09:30:00Z'.",
+        rich_help_panel="Transforms",
     ),
     smooth_elevation: int | None = typer.Option(
         None,
         "--smooth-elevation",
         help="Smooth elevation with a centred moving average of this window "
         "(an odd integer >= 3).",
+        rich_help_panel="Transforms",
     ),
     insert_stopped_time: bool = typer.Option(
         False,
         "--insert-stopped-time/--no-insert-stopped-time",
         help="Split the track at long non-moving gaps so they count as pauses, "
         "not moving time.",
+        rich_help_panel="Transforms",
     ),
     stopped_time_threshold: float = typer.Option(
         30.0,
         "--stopped-time-threshold",
         help="With --insert-stopped-time, a gap longer than this many seconds "
         "becomes a pause.",
-    ),
-    assume_yes: bool = typer.Option(
-        False, "--yes", "-y", help="Overwrite the output without asking."
-    ),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Show the preview but do not write the file."
-    ),
-    json_output: bool = typer.Option(
-        False, "--json", help="Print a machine-readable summary instead of text."
+        rich_help_panel="Transforms",
     ),
     profile: str | None = typer.Option(
         None,
         "--profile",
         help="Load saved settings as a base (flags you also pass win over it).",
+        rich_help_panel="Profiles",
     ),
     save_profile: str | None = typer.Option(
         None,
         "--save-profile",
         help="Save the general settings of this run under a name for reuse.",
+        rich_help_panel="Profiles",
+    ),
+    assume_yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Overwrite the output without asking.",
+        rich_help_panel="Preview & misc",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show the preview but do not write the file.",
+        rich_help_panel="Preview & misc",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Print a machine-readable summary instead of text.",
+        rich_help_panel="Preview & misc",
     ),
 ) -> None:
     """Merge GPS files into one: append sequential rides, or stack same-time ones."""
@@ -229,24 +297,22 @@ def run(
         try:
             saved = profiles.load_profile(profile)
         except ValueError as exc:
-            typer.secho(str(exc), fg=typer.colors.RED, err=True)
+            _error(str(exc))
             raise typer.Exit(EXIT_USAGE) from exc
     # Validate the save name up front so a typo fails fast, not after a merge.
     if save_profile is not None:
         try:
             profiles.validate_name(save_profile)
         except ValueError as exc:
-            typer.secho(str(exc), fg=typer.colors.RED, err=True)
+            _error(str(exc))
             raise typer.Exit(EXIT_USAGE) from exc
 
     # --out is only needed for a real write; a dry run just previews, so the
     # preview line shows "(dry run, no file written)" in place of a path.
     if output is None and not dry_run:
-        typer.secho(
+        _error(
             "no output path: pass --out PATH to write, or --dry-run to preview "
-            "without writing",
-            fg=typer.colors.RED,
-            err=True,
+            "without writing"
         )
         raise typer.Exit(EXIT_USAGE)
 
@@ -289,7 +355,7 @@ def run(
             }
         )
     except ValidationError as exc:
-        typer.secho(_first_error(exc), fg=typer.colors.RED, err=True)
+        _error(_first_error(exc))
         raise typer.Exit(EXIT_USAGE) from exc
 
     result = run_pipeline(settings)
@@ -437,7 +503,7 @@ def profile_show(name: str = typer.Argument(..., help="The profile to show.")) -
     try:
         data = profiles.load_profile(name)
     except ValueError as exc:
-        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        _error(str(exc))
         raise typer.Exit(EXIT_USAGE) from exc
     for key, value in data.items():
         typer.echo(f"{key}={value}")
@@ -449,7 +515,7 @@ def profile_rm(name: str = typer.Argument(..., help="The profile to delete.")) -
     try:
         profiles.delete_profile(name)
     except ValueError as exc:
-        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        _error(str(exc))
         raise typer.Exit(EXIT_USAGE) from exc
     typer.echo(f"deleted profile '{name}'")
 
@@ -464,7 +530,7 @@ def _report(result: RunResult, json_output: bool) -> None:
             )
         else:
             for problem in result.issues:
-                typer.secho(f"error: {problem.message}", fg=typer.colors.RED, err=True)
+                _error(f"error: {problem.message}")
         return
 
     if json_output:
@@ -528,7 +594,7 @@ def _print_preview(result: RunResult) -> None:
             f"({zone_label(preview.timezone_label, preview.local_start)})"
         )
     for warning in preview.warnings:
-        typer.secho(f"  ! {warning}", fg=typer.colors.YELLOW)
+        _warn(f"  ! {warning}")
 
 
 def _format_duration(seconds: float) -> str:

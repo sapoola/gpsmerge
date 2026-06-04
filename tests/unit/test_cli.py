@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,17 @@ def test_examples_command_prints_real_commands() -> None:
     assert "gpsmerge run" in result.output
     assert "--mode stack" in result.output
     assert "--power-from" in result.output
+
+
+@pytest.mark.unit
+def test_run_help_groups_options_into_panels() -> None:
+    # The ~30 run flags are grouped under rich_help_panel headings so the help is
+    # navigable rather than a flat wall. Each panel title should appear.
+    result = runner.invoke(app, ["run", "--help"])
+
+    assert result.exit_code == 0
+    for panel in ("Output", "Stacking", "Appending", "Transforms", "Profiles"):
+        assert panel in result.output
 
 
 @pytest.mark.unit
@@ -135,6 +147,30 @@ def test_run_merges_two_sequential_files(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert output.exists()
+
+
+# Matches an ANSI CSI escape sequence (e.g. the SGR colour codes typer/rich emit).
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+@pytest.mark.unit
+def test_no_color_env_strips_ansi_from_error_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # NO_COLOR is an established convention (https://no-color.org): when it is set
+    # to any value, no ANSI colour codes should appear in the output. The error
+    # path (no --out, no --dry-run) is a usage failure that prints in red.
+    monkeypatch.setenv("NO_COLOR", "1")
+    # FORCE_COLOR would override NO_COLOR; make sure a stray one cannot leak in.
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    a, b = _two_sequential_files(tmp_path)
+
+    # The error goes to stderr; Click's runner captures it separately.
+    result = runner.invoke(app, ["run", str(a), str(b)])
+
+    assert result.exit_code == EXIT_USAGE
+    assert "--out" in result.stderr  # the message itself is unchanged
+    assert not _ANSI.search(result.stderr)  # but it carries no colour codes
 
 
 @pytest.mark.unit
