@@ -13,3 +13,8 @@ All notable changes to this project are documented here. The format is based on 
 - Time helpers (`timeutil`): timezone-aware UTC parsing and FIT-epoch conversion.
 - Pure-Python linear resampling (`resample.lerp`) with gap-aware blanking, used by stacking later.
 - Concept docs: `docs/data-model.md`, `docs/file-formats.md`, and `docs/concepts.md`.
+- `gpsmerge run`: append sequential GPX files into one continuous activity.
+- Device attribution: choose which input's recording device the merged file is recorded under (`--device-from`); defaults to the first input.
+- Append options: gap policy (`--gap-policy pause|shift`), seam de-duplication, and distance recompute with `--ignore-gaps-over-meters`.
+- Pre-merge validation with a clear exit-code taxonomy, a sanity-checked preview (with large-gap warnings), `--dry-run`, and `--json` output.
+- `docs/merge-algorithms.md` explaining how append works.
