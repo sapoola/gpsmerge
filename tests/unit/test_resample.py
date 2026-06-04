@@ -69,3 +69,15 @@ def test_returns_floats_without_rounding() -> None:
 def test_single_sample_only_matches_on_exact_time() -> None:
     src = [(5.0, 42.0)]
     assert lerp([4.0, 5.0, 6.0], src, max_gap_s=30.0) == [None, 42.0, None]
+
+
+@pytest.mark.unit
+def test_multi_target_call_matches_one_call_per_target() -> None:
+    # A single multi-target call must give exactly what calling lerp once per
+    # target would: vectorising the stack must not change any value.
+    src = [(0.0, 0.0), (4.0, 40.0), (8.0, 80.0), (20.0, 200.0)]
+    targets = [-1.0, 0.0, 2.0, 4.0, 6.0, 8.0, 14.0, 20.0, 21.0]
+    # max_gap_s=10 fills the 4 s brackets but leaves the 12 s one (8->20) as None.
+    batched = lerp(targets, src, max_gap_s=10.0)
+    per_target = [lerp([t], src, max_gap_s=10.0)[0] for t in targets]
+    assert batched == per_target

@@ -49,20 +49,24 @@ def lerp(
     if not src:
         return [None] * len(target_times)
 
+    # Split the (time, value) pairs into parallel lists once, up front. A single
+    # call may carry tens of thousands of target times (a whole stack resampled at
+    # once); rebuilding these per target would make that call O(n*m) for no reason.
     src_times = [t for t, _ in src]
+    src_values = [v for _, v in src]
     first_time = src_times[0]
     last_time = src_times[-1]
 
     return [
-        _interpolate_one(t, src, src_times, first_time, last_time, max_gap_s)
+        _interpolate_one(t, src_times, src_values, first_time, last_time, max_gap_s)
         for t in target_times
     ]
 
 
 def _interpolate_one(
     t: float,
-    src: list[tuple[float, float]],
     src_times: list[float],
+    src_values: list[float],
     first_time: float,
     last_time: float,
     max_gap_s: float,
@@ -75,10 +79,10 @@ def _interpolate_one(
     # it is the left edge of the bracket. t == last_time lands past the end.
     right_index = bisect_right(src_times, t)
     if right_index == len(src_times):
-        return src[-1][1]  # exact hit on the final sample
+        return src_values[-1]  # exact hit on the final sample
 
-    a_time, a_value = src[right_index - 1]
-    b_time, b_value = src[right_index]
+    a_time, a_value = src_times[right_index - 1], src_values[right_index - 1]
+    b_time, b_value = src_times[right_index], src_values[right_index]
 
     if a_time == t:
         return a_value  # exact hit, no interpolation needed

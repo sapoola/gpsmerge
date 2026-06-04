@@ -155,6 +155,34 @@ def test_default_device_is_the_first_input() -> None:
 
 
 @pytest.mark.unit
+def test_defaulted_metadata_all_comes_from_one_consistent_input() -> None:
+    # The chronologically first recording (A, starting at t=0) and a later one (B,
+    # starting at t=300), each with its own device, sport, and name.
+    early = Activity(
+        sport="cycling",
+        name="morning ride",
+        device=Device(name="Garmin Edge 530"),
+        segments=[Segment(points=[_point(0, 52.0, 4.0), _point(10, 52.001, 4.001)])],
+        source_path=str(A_PATH),
+    )
+    late = Activity(
+        sport="running",
+        name="evening run",
+        device=Device(name="Stages Dash M50"),
+        segments=[
+            Segment(points=[_point(300, 52.002, 4.002), _point(310, 52.003, 4.003)])
+        ],
+        source_path=str(B_PATH),
+    )
+    # Pass the chronologically later file first: defaults must still all come from
+    # the same input (the earlier one), not split across two.
+    merged = append([late, early], _settings())
+    assert merged.device.name == "Garmin Edge 530"
+    assert merged.sport == "cycling"
+    assert merged.name == "morning ride"
+
+
+@pytest.mark.unit
 def test_sport_override_is_applied() -> None:
     merged = append(_two_sequential(), _settings(sport="running"))
     assert merged.sport == "running"

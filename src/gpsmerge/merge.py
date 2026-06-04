@@ -80,8 +80,11 @@ def append(activities: list[Activity], settings: Settings) -> Activity:
     Returns
     -------
     Activity
-        One activity carrying every input's points in time order, attributed to
-        the chosen recording device.
+        One activity carrying every input's points in time order. Every defaulted
+        field -- device, sport, name, and creation time -- is taken from the same
+        input, the chronologically first activity, so attribution is consistent
+        regardless of the order the inputs are passed. ``device_from`` and
+        ``sport`` override their respective defaults.
     """
     ordered = sorted(activities, key=_sort_key)
 
@@ -226,16 +229,14 @@ def _assign_distance(points: list[TrackPoint], ignore_big_gaps_m: float | None) 
 def _chosen_device(ordered: list[Activity], settings: Settings) -> Device:
     """Return a copy of the device an appended file should be attributed to.
 
-    The user picks it with ``device_from``; by default it is the first input
-    file. The returned :class:`Device` is a copy so the merged activity never
-    shares state with an input.
+    The user picks it with ``device_from``; by default it is the chronologically
+    first activity (``ordered[0]``) -- the same input that supplies the defaulted
+    sport, name, and creation time, so every defaulted field is attributed to one
+    consistent input. The returned :class:`Device` is a copy so the merged
+    activity never shares state with an input.
     """
     if settings.device_from is not None:
         found = _activity_by_path(ordered, settings.device_from)
-        if found is not None:
-            return replace(found.device)
-    elif settings.inputs:
-        found = _activity_by_path(ordered, settings.inputs[0])
         if found is not None:
             return replace(found.device)
     return replace(ordered[0].device)
@@ -285,17 +286,8 @@ def stack(activities: list[Activity], settings: Settings) -> Activity:
 
     segments: list[Segment] = []
     for segment in master.segments:
-        points: list[TrackPoint] = []
-        for source in segment.points:
-            point = replace(source)  # keep the master's time, position, elevation
-            if source.time is not None:
-                seconds = source.time.timestamp()
-                for channel in SCALAR_DONOR_CHANNELS:
-                    sampled = _sample(
-                        donor_series[channel], seconds, settings.max_gap_s
-                    )
-                    setattr(point, channel, _finalize(channel, sampled))
-            points.append(point)
+        points = [replace(p) for p in segment.points]  # keep time/position/elevation
+        _fill_channels(points, donor_series, settings.max_gap_s)
         segments.append(Segment(points=points))
 
     if settings.recompute_distance:
@@ -369,15 +361,53 @@ def _series(activity: Activity, channel: str) -> list[tuple[float, float]]:
     return samples
 
 
-def _sample(
-    owner_series: list[list[tuple[float, float]]], seconds: float, max_gap_s: float
-) -> float | None:
-    """Interpolate the first owner that has a value at ``seconds``, else None."""
+def _fill_channels(
+    points: list[TrackPoint],
+    donor_series: dict[str, list[list[tuple[float, float]]]],
+    max_gap_s: float,
+) -> None:
+    """Resample every donor channel onto ``points`` in place, one owner at a time.
+
+    For each channel the master target times are gathered once, then each owner is
+    interpolated over the whole array with a single :func:`lerp` call -- rather than
+    one call per point per owner, which made stacking O(n^2). Owners combine by the
+    first-non-None-wins rule (a later owner fills only the gaps the earlier ones
+    leave), matching the per-point fallback this replaced. Points without a time
+    take no borrowed channels, so they are skipped here and keep the master's copy.
+    """
+    timed = [
+        (i, p.time.timestamp()) for i, p in enumerate(points) if p.time is not None
+    ]
+    if not timed:
+        return
+    indices = [i for i, _ in timed]
+    target_times = [t for _, t in timed]
+
+    for channel, owner_series in donor_series.items():
+        combined = _combine_owners(owner_series, target_times, max_gap_s)
+        for index, value in zip(indices, combined):
+            setattr(points[index], channel, _finalize(channel, value))
+
+
+def _combine_owners(
+    owner_series: list[list[tuple[float, float]]],
+    target_times: list[float],
+    max_gap_s: float,
+) -> list[float | None]:
+    """Interpolate each owner over all target times, first-non-None-wins per target.
+
+    Each owner is resampled with one :func:`lerp` call across the whole timeline.
+    The first owner supplies the baseline; each later owner fills only the targets
+    the running result still leaves ``None``, so an earlier source always takes
+    precedence -- the same ordering the per-point loop gave.
+    """
+    combined: list[float | None] = [None] * len(target_times)
     for series in owner_series:
-        value = lerp([seconds], series, max_gap_s)[0]
-        if value is not None:
-            return value
-    return None
+        sampled = lerp(target_times, series, max_gap_s)
+        for i, value in enumerate(sampled):
+            if combined[i] is None:
+                combined[i] = value
+    return combined
 
 
 def _finalize(channel: str, value: float | None) -> float | int | None:

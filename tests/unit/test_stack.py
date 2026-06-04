@@ -8,6 +8,7 @@ build tiny in-code activities and assert that behaviour, not the internals.
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -381,3 +382,27 @@ def test_indoor_master_is_the_input_with_more_points() -> None:
     assert len(list(merged.points())) == 3  # its timeline
     # Its recorded distance is kept (there is no GPS to recompute from).
     assert [p.distance for p in merged.points()] == [0.0, 50.0, 110.0]
+
+
+@pytest.mark.unit
+def test_large_stack_completes_quickly() -> None:
+    # The old per-point/per-owner/per-channel lerp made this O(n^2): a 20k-point
+    # stack took many seconds. Vectorised, it must finish well under a second.
+    n = 20_000
+    master = _activity(
+        [_point(i, 52.0 + i * 1e-6, 4.0 + i * 1e-6) for i in range(n)],
+        device_name="Master",
+        source=WATCH_PATH,
+    )
+    donor = _activity(
+        [_point(i, 0.0, 0.0, power=100 + (i % 50)) for i in range(n)],
+        device_name="Donor",
+        source=TRAINER_PATH,
+    )
+
+    started = time.perf_counter()
+    merged = stack([master, donor], _settings(position_from=WATCH_PATH))
+    elapsed = time.perf_counter() - started
+
+    assert len(list(merged.points())) == n
+    assert elapsed < 1.0, f"20k-point stack took {elapsed:.2f}s, expected < 1s"
