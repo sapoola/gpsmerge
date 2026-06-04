@@ -4,7 +4,7 @@ gpsmerge runs entirely on your own machine — it has no network, no account, an
 
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities privately rather than opening a public issue. Email **security@gpsmerge.invalid** (placeholder — replace with a monitored address before release) with:
+Please report suspected vulnerabilities privately rather than opening a public issue. Use GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability): go to the repository's **Security** tab and click **Report a vulnerability**. Please include:
 
 - a description of the issue and its impact,
 - the smallest input file or command that reproduces it, and
