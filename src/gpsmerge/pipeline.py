@@ -286,10 +286,19 @@ def _elapsed_seconds(points: list[TrackPoint]) -> float:
 
 
 def _total_distance(points: list[TrackPoint]) -> float:
-    """Return the total distance, preferring an assigned value, else recomputing."""
-    last = points[-1].distance if points else None
-    if last is not None:
-        return last
+    """Return the total distance, preferring recorded values, else recomputing.
+
+    A recorded cumulative distance is non-decreasing, so its maximum is the total.
+    We take the max rather than the last point's value because a device commonly
+    stops emitting distance when stationary, leaving the final point's distance
+    ``None`` even though earlier points recorded the true total. Falling back to a
+    position recompute happens only when *no* point recorded a distance, so an
+    explicit ``--no-recompute-distance`` choice is honoured whenever any recorded
+    distance exists.
+    """
+    recorded = [p.distance for p in points if p.distance is not None]
+    if recorded:
+        return max(recorded)
     distances = cumulative_distance(points)
     return distances[-1] if distances else 0.0
 

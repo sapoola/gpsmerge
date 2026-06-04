@@ -7,23 +7,40 @@ function.
 
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from pathlib import Path
+from tempfile import mkstemp
 
 from gpsmerge.errors import UnsupportedFormat
 from gpsmerge.gpx import write_gpx
 from gpsmerge.model import Activity
 from gpsmerge.tcx import write_tcx
 
+# Maps an output format to the writer that serialises an Activity to a path.
+_WRITERS: dict[str, Callable[[Activity, Path], None]] = {
+    "gpx": write_gpx,
+    "tcx": write_tcx,
+}
+
 
 def write(activity: Activity, path: Path, output_format: str) -> None:
-    """Write an activity to ``path`` in ``output_format``.
+    """Write an activity to ``path`` in ``output_format``, atomically.
+
+    The activity is serialised to a temporary file in the *same* directory as
+    ``path`` and then :func:`os.replace`-d onto it, which is atomic on a single
+    filesystem. A crash or error part-way through therefore leaves any existing
+    ``path`` untouched rather than half-overwritten -- the destination either holds
+    the previous file or the complete new one, never a truncated mix. The same
+    directory matters: a cross-filesystem replace is not atomic, so a temp file in
+    the system temp dir would defeat the guarantee.
 
     Parameters
     ----------
     activity : Activity
         The activity to serialise.
     path : Path
-        Destination file path; overwritten if it exists.
+        Destination file path; overwritten (atomically) if it exists.
     output_format : str
         The format to write. Today ``"gpx"`` and ``"tcx"`` are supported;
         ``"fit"`` arrives in a later milestone.
@@ -33,10 +50,28 @@ def write(activity: Activity, path: Path, output_format: str) -> None:
     UnsupportedFormat
         If ``output_format`` is not one we write.
     """
-    if output_format == "gpx":
-        write_gpx(activity, path)
-        return
-    if output_format == "tcx":
-        write_tcx(activity, path)
-        return
-    raise UnsupportedFormat(f"cannot write {output_format!r} yet")
+    writer = _WRITERS.get(output_format)
+    if writer is None:
+        raise UnsupportedFormat(f"cannot write {output_format!r} yet")
+    _write_atomic(writer, activity, path)
+
+
+def _write_atomic(
+    writer: Callable[[Activity, Path], None], activity: Activity, path: Path
+) -> None:
+    """Serialise via ``writer`` to a sibling temp file, then replace ``path``.
+
+    The temp file is created in ``path``'s parent so the final
+    :func:`os.replace` stays on one filesystem and is atomic. On any failure the
+    temp file is removed and the original ``path`` is left intact.
+    """
+    fd, temp_name = mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    os.close(fd)  # the writers open the path themselves; we only needed the name.
+    temp_path = Path(temp_name)
+    try:
+        writer(activity, temp_path)
+        os.replace(temp_path, path)
+    except BaseException:
+        # Leave the destination as it was; never strand the temp file.
+        temp_path.unlink(missing_ok=True)
+        raise

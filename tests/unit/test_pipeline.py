@@ -9,7 +9,9 @@ import pytest
 
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_MODE_CONFLICT, EXIT_PARSE, EXIT_USAGE
-from gpsmerge.pipeline import run
+from gpsmerge.model import Activity, TrackPoint
+from gpsmerge.pipeline import _total_distance, run
+from gpsmerge.write import write
 
 # A tiny GPX with one segment of two points; placeholders are filled per file.
 _GPX_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -319,3 +321,72 @@ def test_unparseable_shift_is_a_usage_error(tmp_path: Path) -> None:
     result = run(_settings(inputs, output, dry_run=True, shift="soon"))
 
     assert any(issue.code == EXIT_USAGE for issue in result.issues)
+
+
+# --- preview distance ----------------------------------------------------
+
+
+@pytest.mark.unit
+def test_total_distance_uses_max_recorded_when_last_point_omits_it() -> None:
+    # A device often stops emitting cumulative distance while stationary, so the
+    # last point's distance is None even though an earlier point holds the true
+    # total. The preview must report that total (5.0), not 0.
+    points = [
+        TrackPoint(time=None, distance=0.0),
+        TrackPoint(time=None, distance=5.0),
+        TrackPoint(time=None, distance=None),
+    ]
+
+    assert _total_distance(points) == 5.0
+
+
+@pytest.mark.unit
+def test_total_distance_recomputes_only_when_no_point_records_it() -> None:
+    # No recorded distance anywhere: fall back to a position recompute, which is
+    # zero for two coincident points.
+    points = [
+        TrackPoint(time=None, lat=52.0, lon=4.0),
+        TrackPoint(time=None, lat=52.0, lon=4.0),
+    ]
+
+    assert _total_distance(points) == 0.0
+
+
+# --- atomic write --------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_failed_write_leaves_an_existing_destination_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Pre-existing output a person would not want truncated by a crashed write.
+    output = tmp_path / "out.gpx"
+    output.write_text("ORIGINAL CONTENTS", encoding="utf-8")
+
+    def _boom(activity: Activity, path: Path) -> None:
+        # Simulate a writer that fails after the temp file has been created.
+        path.write_text("HALF WRITTEN", encoding="utf-8")
+        raise OSError("disk full")
+
+    monkeypatch.setitem(write.__globals__["_WRITERS"], "gpx", _boom)
+
+    with pytest.raises(OSError):
+        write(Activity(), output, "gpx")
+
+    # The original survives untouched, and no stray temp file is left behind.
+    assert output.read_text(encoding="utf-8") == "ORIGINAL CONTENTS"
+    assert list(tmp_path.iterdir()) == [output]
+
+
+@pytest.mark.unit
+def test_atomic_write_replaces_the_destination_on_success(tmp_path: Path) -> None:
+    # The successful path still overwrites cleanly and leaves no temp file.
+    inputs = _two_sequential_files(tmp_path)
+    output = tmp_path / "out.gpx"
+    output.write_text("STALE", encoding="utf-8")
+
+    result = run(_settings(inputs, output, assume_yes=True))
+
+    assert result.written is True
+    assert output.read_text(encoding="utf-8") != "STALE"
+    assert not any(p.name.endswith(".tmp") for p in tmp_path.iterdir())

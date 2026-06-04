@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import fitdecode
 
@@ -88,9 +88,9 @@ def read_fit(path: Path) -> Activity:
                 current.points.append(_read_point(frame))
             elif frame.name == "file_id":
                 device = _read_device(frame)
-                time_created = _get(frame, "time_created")
+                time_created = _get_time(frame, "time_created")
             elif frame.name in ("sport", "session") and sport is None:
-                sport = _canonical_sport(_get(frame, "sport"))
+                sport = _canonical_sport(_get_str(frame, "sport"))
             elif frame.name == "event" and _is_timer_stop(frame):
                 current = _close_segment(segments, current)
 
@@ -108,18 +108,25 @@ def read_fit(path: Path) -> Activity:
 
 
 def _read_point(frame: fitdecode.FitDataMessage) -> TrackPoint:
-    """Convert one ``record`` message to a TrackPoint, in real units."""
+    """Convert one ``record`` message to a TrackPoint, in real units.
+
+    Every field is coerced to the model's declared type at this boundary (via the
+    ``_get_int``/``_get_float`` helpers) so no unchecked ``Any`` from fitdecode
+    flows into the typed :class:`TrackPoint`.
+    """
     return TrackPoint(
-        time=_to_utc(_get(frame, "timestamp")),
-        lat=_position_degrees(_get(frame, "position_lat")),
-        lon=_position_degrees(_get(frame, "position_long")),
-        ele=_prefer(_get(frame, "enhanced_altitude"), _get(frame, "altitude")),
-        distance=_get(frame, "distance"),
-        hr=_get(frame, "heart_rate"),
-        cad=_get(frame, "cadence"),
-        power=_get(frame, "power"),
-        temp=_get(frame, "temperature"),
-        speed=_prefer(_get(frame, "enhanced_speed"), _get(frame, "speed")),
+        time=_to_utc(_get_time(frame, "timestamp")),
+        lat=_position_degrees(_get_int(frame, "position_lat")),
+        lon=_position_degrees(_get_int(frame, "position_long")),
+        ele=_prefer(
+            _get_float(frame, "enhanced_altitude"), _get_float(frame, "altitude")
+        ),
+        distance=_get_float(frame, "distance"),
+        hr=_get_int(frame, "heart_rate"),
+        cad=_get_int(frame, "cadence"),
+        power=_get_int(frame, "power"),
+        temp=_get_float(frame, "temperature"),
+        speed=_prefer(_get_float(frame, "enhanced_speed"), _get_float(frame, "speed")),
     )
 
 
@@ -131,13 +138,13 @@ def _read_device(frame: fitdecode.FitDataMessage) -> Device:
     ``garmin_product`` rather than the generic ``product`` field, so both are
     checked. The human ``name`` joins the two when both are known.
     """
-    manufacturer = _stringify(_get(frame, "manufacturer"))
-    product = _stringify(_get(frame, "product") or _get(frame, "garmin_product"))
+    manufacturer = _get_str(frame, "manufacturer")
+    product = _get_str(frame, "product") or _get_str(frame, "garmin_product")
     return Device(
         name=_device_name(manufacturer, product),
         manufacturer=manufacturer,
         product=product,
-        serial_number=_get(frame, "serial_number"),
+        serial_number=_get_int(frame, "serial_number"),
     )
 
 
@@ -168,8 +175,8 @@ def _prettify(token: str | None) -> str | None:
 def _is_timer_stop(frame: fitdecode.FitDataMessage) -> bool:
     """Return ``True`` if this event message is a timer stop (a recording pause)."""
     return (
-        _get(frame, "event") == _TIMER_EVENT
-        and _get(frame, "event_type") in _STOP_EVENT_TYPES
+        _get_str(frame, "event") == _TIMER_EVENT
+        and _get_str(frame, "event_type") in _STOP_EVENT_TYPES
     )
 
 
@@ -184,12 +191,11 @@ def _close_segment(segments: list[Segment], current: Segment) -> Segment:
     return Segment()
 
 
-def _canonical_sport(sport: Any) -> str | None:
+def _canonical_sport(sport: str | None) -> str | None:
     """Map a decoded FIT sport to our canonical sport, or ``None`` if unknown."""
-    name = _stringify(sport)
-    if name is None:
+    if sport is None:
         return None
-    name = name.lower()
+    name = sport.lower()
     return name if name in _CANONICAL_SPORTS else None
 
 
@@ -205,22 +211,72 @@ def _prefer(enhanced: float | None, plain: float | None) -> float | None:
     return enhanced if enhanced is not None else plain
 
 
-def _get(frame: fitdecode.FitDataMessage, field: str) -> Any:
+class _Decoded(Protocol):
+    """The slice of ``fitdecode.FitDataMessage`` this module reads.
+
+    fitdecode ships no type stubs, so ``get_value`` is untyped ``Any``. Pinning
+    the one method we call to this Protocol lets the coercion helpers below take a
+    typed argument, so mypy checks the boundary where raw FIT values enter the
+    typed model instead of waving the whole frame through as ``Any``.
+    """
+
+    def get_value(self, field_name_or_num: str, *, fallback: Any = ...) -> Any:
+        """Return the decoded field value, or ``fallback`` if the field is absent."""
+
+
+def _get(frame: _Decoded, field: str) -> Any:
     """Return a decoded field's value, or ``None`` when the record lacks it.
 
     fitdecode raises if you ask for a field a message does not carry, so this
     wraps ``get_value`` with a ``None`` fallback -- making an absent channel read
-    as ``None`` rather than an error.
+    as ``None`` rather than an error. The typed ``_get_int``/``_get_float``/
+    ``_get_str`` wrappers are what callers use; this stays the single place that
+    touches the raw ``Any``.
     """
     return frame.get_value(field, fallback=None)
 
 
-def _stringify(value: Any) -> str | None:
-    """Return a non-empty string for `value`, or ``None`` when it is absent."""
+def _get_int(frame: _Decoded, field: str) -> int | None:
+    """Return a field coerced to ``int``, or ``None`` when absent or non-numeric.
+
+    Numeric FIT channels decode to ``int``/``float``; a ``bool`` is rejected
+    because ``isinstance(True, int)`` is true yet a boolean is never a real count.
+    """
+    value = _get(frame, field)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+def _get_float(frame: _Decoded, field: str) -> float | None:
+    """Return a field coerced to ``float``, or ``None`` when absent or non-numeric."""
+    value = _get(frame, field)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _get_str(frame: _Decoded, field: str) -> str | None:
+    """Return a field as a non-empty stripped string, or ``None`` when absent.
+
+    FIT enums decode to readable strings; anything else is stringified so an
+    unexpected type still crosses the boundary as a ``str`` rather than ``Any``.
+    """
+    value = _get(frame, field)
     if value is None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _get_time(frame: _Decoded, field: str) -> datetime | None:
+    """Return a field as a ``datetime``, or ``None`` when absent or not a datetime.
+
+    fitdecode decodes FIT timestamps to ``datetime`` objects; anything else is
+    treated as absent so only a real datetime reaches :func:`_to_utc`.
+    """
+    value = _get(frame, field)
+    return value if isinstance(value, datetime) else None
 
 
 def _to_utc(value: datetime | None) -> datetime | None:
