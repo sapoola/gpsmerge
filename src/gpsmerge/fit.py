@@ -142,10 +142,27 @@ def _read_device(frame: fitdecode.FitDataMessage) -> Device:
 
 
 def _device_name(manufacturer: str | None, product: str | None) -> str | None:
-    """Build a human device name from manufacturer and product, when known."""
-    if manufacturer and product:
-        return f"{manufacturer} {product}"
-    return manufacturer or product
+    """Build a readable device name from the FIT manufacturer and product.
+
+    FIT gives enum-style strings like ``"stages_cycling"`` and (for mapped
+    products) ``"edge_530"``, which we tidy to ``"Stages Cycling"`` and
+    ``"Edge 530"``. An unmapped product comes back as a bare number (e.g. ``"1"``)
+    that means nothing to a person, so it is dropped rather than appended -- the
+    raw value is still kept in :attr:`Device.product`.
+    """
+    maker = _prettify(manufacturer)
+    model = _prettify(product) if product and not product.isdigit() else None
+    if maker and model:
+        return f"{maker} {model}"
+    return maker or model
+
+
+def _prettify(token: str | None) -> str | None:
+    """Turn a FIT enum token like ``"stages_cycling"`` into ``"Stages Cycling"``."""
+    if not token:
+        return None
+    words = token.replace("_", " ").split()
+    return " ".join(word[:1].upper() + word[1:] for word in words)
 
 
 def _is_timer_stop(frame: fitdecode.FitDataMessage) -> bool:

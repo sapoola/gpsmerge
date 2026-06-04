@@ -121,9 +121,9 @@ def test_read_fit_brings_through_device_identity(tmp_path: Path) -> None:
     path = _write_fit(tmp_path, [_file_id(), _record_at(0)])
     device = read_fit(path).device
 
-    assert device.manufacturer == "garmin"
+    assert device.manufacturer == "garmin"  # raw FIT value kept for fidelity
     assert device.product == "edge_530"
-    assert device.name == "garmin edge_530"
+    assert device.name == "Garmin Edge 530"  # tidied for display
     assert device.serial_number == 3_991_234_567
 
 
@@ -270,3 +270,14 @@ def _timer(seconds: int, event_type: EventType) -> EventMessage:
     event.event = Event.TIMER.value
     event.event_type = event_type.value
     return event
+
+
+@pytest.mark.unit
+def test_device_name_tidies_manufacturer_and_drops_a_numeric_product() -> None:
+    from gpsmerge.fit import _device_name
+
+    # A mapped product keeps its (tidied) name; a bare numeric id is dropped.
+    assert _device_name("garmin", "edge_530") == "Garmin Edge 530"
+    assert _device_name("stages_cycling", "1") == "Stages Cycling"
+    assert _device_name("garmin", None) == "Garmin"
+    assert _device_name(None, None) is None
