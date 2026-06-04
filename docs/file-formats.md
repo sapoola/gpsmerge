@@ -8,9 +8,9 @@ gpsmerge reads and writes activity files. There are three formats you will meet 
 | ------ | ----- | -------------- |
 | GPX    | XML text | reads and writes |
 | TCX    | XML text | reads and writes |
-| FIT    | binary | reading comes later |
+| FIT    | binary | reads (writing comes later) |
 
-Today gpsmerge **reads and writes GPX and TCX**. FIT reading is planned for a later milestone; the data model already has room for it (it carries a `source_format` of `"gpx"`, `"tcx"`, or `"fit"`), but FIT is not wired up yet.
+Today gpsmerge **reads and writes GPX and TCX, and reads FIT**. Writing FIT remains a later, experimental milestone; the data model already carries a `source_format` of `"gpx"`, `"tcx"`, or `"fit"`, so a FIT file you read merges and writes out as GPX or TCX just like any other input.
 
 ## GPX — the lingua franca
 
@@ -48,11 +48,12 @@ FIT (Flexible and Interoperable Data Transfer) is the format your Garmin, Wahoo,
 
 A few quirks that matter:
 
-- **Positions are stored as "semicircles", not degrees.** FIT records latitude and longitude as signed 32-bit integers where a full circle is `2**32` units, so `2**31` semicircles is 180 degrees. They must be converted to decimal degrees before they mean anything to the rest of the tool. gpsmerge already has the conversion helpers ready in `geo.py` (`semicircles_to_degrees` and back) for when FIT reading lands.
-- **Timestamps count from a different epoch.** FIT seconds are measured from 1989-12-31T00:00:00Z, not the Unix epoch. `timeutil.py` carries `fit_timestamp_to_utc` to translate them into the model's UTC datetimes.
+- **Positions are stored as "semicircles", not degrees.** FIT records latitude and longitude as signed 32-bit integers where a full circle is `2**32` units, so `2**31` semicircles is 180 degrees. gpsmerge converts them to decimal degrees on read with `semicircles_to_degrees` from `geo.py`. The conversion is lossless to within roughly `1e-5` degrees, the quantisation step of a single semicircle.
+- **Timestamps count from a different epoch.** FIT seconds are measured from 1989-12-31T00:00:00Z, not the Unix epoch. The `fitdecode` parser decodes them to datetimes for us, and `read_fit` normalises every one to the model's timezone-aware UTC.
+- **Some channels come in two flavours.** FIT carries both `altitude`/`speed` and wider-range `enhanced_altitude`/`enhanced_speed`. gpsmerge prefers the enhanced field when it is present, because it is the one a modern device records when the plain field would clip, and falls back to the plain field otherwise.
 - It is the richest of the three formats — device identity (manufacturer, product, serial number, software version) and many sensor channels are all available — which is why the data model's `Device` has structured fields that mainly come from FIT.
 
-gpsmerge does not read FIT yet either; it is a later milestone. The geometry and time helpers it will need already exist and are tested, so the remaining work is the binary parsing itself.
+gpsmerge **reads FIT** via the `fitdecode` parser (see `fit.py`). Each `record` message becomes a track point, the `file_id` message supplies the device identity and creation time, and the `sport` (or `session`) message supplies the sport. Recording pauses survive as segment boundaries: a `timer` `stop` event closes the current segment and the next `timer` `start` opens a fresh one, exactly as a pause between TCX tracks does. **Writing FIT remains a later, experimental milestone** — for now a FIT file you read is written back out as GPX or TCX.
 
 ## Why this matters for merging
 

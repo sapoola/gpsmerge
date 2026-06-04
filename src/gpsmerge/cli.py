@@ -199,14 +199,16 @@ def examples() -> None:
 def formats() -> None:
     """Print the supported formats and which channels each carries."""
     typer.echo("Supported formats:")
-    typer.echo("  read:  gpx, tcx")
+    typer.echo("  read:  gpx, tcx, fit")
     typer.echo("  write: gpx, tcx")
     typer.echo("")
     typer.echo("Channels carried by each format:")
     typer.echo("  gpx: position, elevation, hr, cadence, power, temperature, speed")
     typer.echo("  tcx: position, elevation, hr, cadence, power, speed (no temperature)")
+    typer.echo("  fit: position, elevation, hr, cadence, power, temperature, speed")
     typer.echo("")
-    typer.echo("Note: TCX has no temperature channel; it is dropped on write.")
+    typer.echo("Notes: FIT is read-only for now; writing FIT is a later milestone.")
+    typer.echo("       TCX has no temperature channel; it is dropped on write.")
 
 
 def _report(result: RunResult, json_output: bool) -> None:

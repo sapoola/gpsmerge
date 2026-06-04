@@ -48,10 +48,11 @@ def test_read_dispatches_tcx(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_read_rejects_an_unsupported_extension() -> None:
-    # FIT reading arrives in a later milestone.
-    with pytest.raises(UnsupportedFormat):
-        read(Path("ride.fit"))
+def test_read_dispatches_fit_now_that_it_is_supported() -> None:
+    # FIT is a supported extension now: a missing .fit reaches the reader and
+    # surfaces as a ParseError, not UnsupportedFormat.
+    with pytest.raises(ParseError):
+        read(Path("nonexistent.fit"))
 
 
 @pytest.mark.unit
