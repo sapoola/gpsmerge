@@ -225,6 +225,42 @@ def test_run_dry_run_writes_nothing(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_run_dry_run_without_out_succeeds_and_writes_nothing(tmp_path: Path) -> None:
+    # --out is optional for a dry run: the preview is shown, nothing is written.
+    a, b = _two_sequential_files(tmp_path)
+
+    result = runner.invoke(app, ["run", str(a), str(b), "--dry-run"])
+
+    assert result.exit_code == 0
+    assert "dry run, no file written" in result.output
+    assert not (tmp_path / "merged.gpx").exists()
+    assert not Path("merged.gpx").exists()
+
+
+@pytest.mark.unit
+def test_run_without_out_and_not_dry_run_is_a_usage_error(tmp_path: Path) -> None:
+    # A real write needs somewhere to go: no --out (and not --dry-run) fails fast.
+    a, b = _two_sequential_files(tmp_path)
+
+    result = runner.invoke(app, ["run", str(a), str(b)])
+
+    assert result.exit_code == EXIT_USAGE
+    assert "--out" in result.output
+
+
+@pytest.mark.unit
+def test_run_dry_run_without_out_json_has_null_output(tmp_path: Path) -> None:
+    a, b = _two_sequential_files(tmp_path)
+
+    result = runner.invoke(app, ["run", str(a), str(b), "--dry-run", "--json"])
+
+    assert result.exit_code == 0
+    summary = json.loads(result.stdout)
+    assert summary["output"] is None
+    assert summary["written"] is False
+
+
+@pytest.mark.unit
 def test_run_json_output_is_machine_readable(tmp_path: Path) -> None:
     a, b = _two_sequential_files(tmp_path)
     output = tmp_path / "out.gpx"

@@ -86,8 +86,11 @@ def run(
     inputs: list[Path] = typer.Argument(
         ..., help="The GPS files to merge, in order (two or more)."
     ),
-    output: Path = typer.Option(
-        ..., "--out", "-o", help="Where to write the merged file."
+    output: Path | None = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help="Where to write the merged file. Required unless --dry-run.",
     ),
     output_format: str = typer.Option(
         "gpx", "--format", help="Output format: 'gpx' or 'tcx'."
@@ -236,13 +239,29 @@ def run(
             typer.secho(str(exc), fg=typer.colors.RED, err=True)
             raise typer.Exit(EXIT_USAGE) from exc
 
+    # --out is only needed for a real write; a dry run just previews, so the
+    # preview line shows "(dry run, no file written)" in place of a path.
+    if output is None and not dry_run:
+        typer.secho(
+            "no output path: pass --out PATH to write, or --dry-run to preview "
+            "without writing",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(EXIT_USAGE)
+
     resolved = _resolve_profile(ctx, saved, flag_values)
+
+    # A dry run with no --out still needs *some* path for Settings (its output is
+    # required), but nothing is written, so a placeholder is harmless and the
+    # result's path is cleared below before anything is printed.
+    settings_output = output if output is not None else Path("merged.gpx")
 
     try:
         settings = Settings.model_validate(
             {
                 "inputs": inputs,
-                "output": output,
+                "output": settings_output,
                 "output_format": resolved["output_format"],
                 "mode": resolved["mode"],
                 "max_gap_s": resolved["max_gap_seconds"],
@@ -274,6 +293,10 @@ def run(
         raise typer.Exit(EXIT_USAGE) from exc
 
     result = run_pipeline(settings)
+    # When no --out was given (dry run only), there is no real path to report --
+    # drop the placeholder so the preview shows "(dry run, no file written)".
+    if output is None:
+        result.output = None
     _report(result, json_output)
     # Save only a run that worked (a dry run still counts): a profile built from a
     # merge that erred out would pin settings the user never got to see succeed.
@@ -483,8 +506,11 @@ def _print_preview(result: RunResult) -> None:
     """Print the human-readable preview of a successful run."""
     preview = result.preview
     assert preview is not None
-    verb = "Wrote" if result.written else "Would write"
-    typer.echo(f"{verb} {result.output}")
+    if result.output is None:
+        typer.echo("Merged (dry run, no file written)")
+    else:
+        verb = "Wrote" if result.written else "Would write"
+        typer.echo(f"{verb} {result.output}")
     typer.echo(f"  points:   {preview.point_count}")
     typer.echo(
         f"  moving:   {_format_duration(preview.moving_seconds)}  "

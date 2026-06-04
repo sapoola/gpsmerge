@@ -6,7 +6,9 @@ The wizard is the easiest way to merge files with gpsmerge. You do not need to k
 gpsmerge
 ```
 
-If you pipe input or run in CI (no terminal attached), gpsmerge does not start the wizard -- it prints a short hint and exits, so an automated run never hangs waiting for an answer. For scripts, use `gpsmerge run` with flags instead (see `gpsmerge examples`).
+It opens with the gpsmerge banner and a one-line intro, then walks you through the merge in numbered steps. Each major phase (your files, what gpsmerge detected, the channel choices, output options, and the final preview) is introduced by a labelled section rule, so you always know where you are. The wording throughout is plain and friendly, and you can press **Ctrl-C** at any prompt to stop without writing anything.
+
+If you pipe input or run in CI (no terminal attached), gpsmerge does not start the wizard -- it prints a short hint and exits, so an automated run never hangs waiting for an answer. The banner only ever appears in the interactive wizard, never in that non-interactive hint. For scripts, use `gpsmerge run` with flags instead (see `gpsmerge examples`).
 
 ## A walkthrough
 
@@ -126,7 +128,30 @@ The default is `merged.<format>` next to your input files. If the file already e
 ? Write it?  (Y/n)
 ```
 
-Nothing is written until you confirm. Review the points, time, distance, channels, device, and any warnings. Answer **yes** to write the file; answer **no** and gpsmerge exits cleanly with nothing written.
+Nothing is written until you confirm. Review the points, time, distance, channels, device, and any warnings. Answer **yes** and gpsmerge writes the file, then shows a green success panel summarising what it made -- where it was saved, the point count, distance, moving and elapsed time, channels, and device:
+
+```
+╭──── ✓ Done! Your merged file is ready ────╮
+│  saved to  /home/you/rides/merged.gpx     │
+│    points  2484                           │
+│  distance  41.20 km                       │
+│  duration  1h 25m 40s moving  (elapsed 1h 48m 30s) │
+│  channels  position, elevation, hr, power │
+│    device  Garmin Edge 530                │
+╰───────────────────────────────────────────╯
+```
+
+Answer **no** and gpsmerge exits cleanly with nothing written -- your originals are untouched.
+
+### 9. Save these settings (optional)
+
+After a successful write, the wizard offers to remember the merge's general settings (mode, format, timezone, clean-up, and so on -- not the specific files) under a name:
+
+```
+? Want to reuse these settings? Give them a profile name, or Enter to skip
+```
+
+Type a name and next time you can skip the questions entirely with `gpsmerge run --profile <name>`. Press Enter to skip saving.
 
 ## Stopping early
 
