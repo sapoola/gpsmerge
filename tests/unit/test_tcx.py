@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from lxml.etree import LxmlError
 
 from gpsmerge.model import Activity, Device, Segment, TrackPoint
 from gpsmerge.tcx import read_tcx, write_tcx
@@ -278,3 +280,186 @@ def test_read_tolerates_float_formatted_integer_channels(tmp_path: Path) -> None
     point = next(iter(read_tcx(path).points()))
     assert point.hr == 140
     assert point.cad == 85
+
+
+@pytest.mark.unit
+def test_read_does_not_resolve_external_or_nested_entities(tmp_path: Path) -> None:
+    # A malicious TCX with a DOCTYPE declaring an external/general entity (XXE)
+    # plus a billion-laughs nested-entity bomb. A hardened parser must neither
+    # read the local file the entity points at, nor expand the bomb. We accept
+    # either a clean parse with the entities left unresolved, or a ValueError --
+    # what we must NOT allow is exfiltration of the secret or a memory blow-up.
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP-SECRET", encoding="utf-8")
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE TrainingCenterDatabase [
+  <!ENTITY xxe SYSTEM "file://{secret}">
+  <!ENTITY lol "lol">
+  <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+  <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
+  <!ENTITY lol4 "&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;">
+]>
+<TrainingCenterDatabase
+    xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+ <Activities>
+  <Activity Sport="Biking">
+   <Id>2026-06-03T08:00:00Z&xxe;&lol4;</Id>
+   <Lap StartTime="2026-06-03T08:00:00Z">
+    <Track>
+     <Trackpoint><Time>2026-06-03T08:00:00Z</Time></Trackpoint>
+    </Track>
+   </Lap>
+  </Activity>
+ </Activities>
+</TrainingCenterDatabase>
+"""
+    path = tmp_path / "evil.tcx"
+    path.write_text(xml, encoding="utf-8")
+
+    try:
+        activity = read_tcx(path)
+    except (LxmlError, ValueError):
+        # Refusing the entity-laden document outright is an acceptable outcome:
+        # with the DTD never loaded, the undefined entities trip a parse error
+        # rather than expanding. The point is that nothing was resolved.
+        return
+
+    # If it parsed, the secret must not have leaked into any text we read.
+    for point in activity.points():
+        if point.time is not None:
+            assert "TOP-SECRET" not in point.time.isoformat()
+    rendered = "".join(filter(None, (str(s.points) for s in activity.segments)))
+    assert "TOP-SECRET" not in rendered
+
+
+@pytest.mark.unit
+def test_read_concatenates_points_from_every_activity(tmp_path: Path) -> None:
+    # Multisport / Training Center files can hold several <Activity> elements.
+    # Every Activity's points must come through, not just the first one's.
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase
+    xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+ <Activities>
+  <Activity Sport="Running">
+   <Id>2026-06-03T08:00:00Z</Id>
+   <Lap StartTime="2026-06-03T08:00:00Z">
+    <Track>
+     <Trackpoint><Time>2026-06-03T08:00:00Z</Time></Trackpoint>
+     <Trackpoint><Time>2026-06-03T08:00:01Z</Time></Trackpoint>
+    </Track>
+   </Lap>
+  </Activity>
+  <Activity Sport="Biking">
+   <Id>2026-06-03T08:30:00Z</Id>
+   <Lap StartTime="2026-06-03T08:30:00Z">
+    <Track>
+     <Trackpoint><Time>2026-06-03T08:30:00Z</Time></Trackpoint>
+    </Track>
+   </Lap>
+  </Activity>
+ </Activities>
+</TrainingCenterDatabase>
+"""
+    path = tmp_path / "multisport.tcx"
+    path.write_text(xml, encoding="utf-8")
+
+    activity = read_tcx(path)
+
+    times = [p.time for p in activity.points()]
+    assert times == [
+        datetime(2026, 6, 3, 8, 0, 0, tzinfo=UTC),
+        datetime(2026, 6, 3, 8, 0, 1, tzinfo=UTC),
+        datetime(2026, 6, 3, 8, 30, 0, tzinfo=UTC),
+    ]
+    # Sport/device/Id come from the first Activity.
+    assert activity.sport == "running"
+
+
+@pytest.mark.unit
+def test_round_trip_preserves_sub_second_timestamps(tmp_path: Path) -> None:
+    # Time is the merge/overlap key, so a fractional second must survive a write.
+    sub_second = datetime(2026, 6, 3, 12, 0, 0, 250000, tzinfo=UTC)
+    activity = Activity(
+        sport="cycling",
+        segments=[Segment(points=[TrackPoint(time=sub_second, lat=52.0, lon=4.0)])],
+    )
+    path = tmp_path / "subsecond.tcx"
+
+    write_tcx(activity, path)
+
+    # The fractional second must appear on the wire, milliseconds and all.
+    assert "2026-06-03T12:00:00.250Z" in path.read_text(encoding="utf-8")
+    assert next(iter(read_tcx(path).points())).time == sub_second
+
+
+@pytest.mark.unit
+def test_write_emits_whole_seconds_when_no_microseconds(tmp_path: Path) -> None:
+    # A whole-second time must NOT gain a spurious ".000" fractional part.
+    whole = datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC)
+    activity = Activity(
+        segments=[Segment(points=[TrackPoint(time=whole, lat=52.0, lon=4.0)])],
+    )
+    path = tmp_path / "whole.tcx"
+
+    write_tcx(activity, path)
+
+    text = path.read_text(encoding="utf-8")
+    assert "<Time>2026-06-03T12:00:00Z</Time>" in text
+
+
+@pytest.mark.unit
+def test_round_trip_preserves_a_lone_latitude(tmp_path: Path) -> None:
+    # A point with latitude but no longitude must not silently drop the latitude
+    # on a TCX->TCX round-trip: <Position> is emitted when EITHER is present.
+    activity = Activity(
+        segments=[
+            Segment(
+                points=[
+                    TrackPoint(
+                        time=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC),
+                        lat=52.123,
+                        lon=None,
+                    )
+                ]
+            )
+        ],
+    )
+    path = tmp_path / "lone_lat.tcx"
+
+    write_tcx(activity, path)
+    result = next(iter(read_tcx(path).points()))
+
+    assert result.lat == pytest.approx(52.123)
+    assert result.lon is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+def test_write_treats_non_finite_channel_values_as_absent(
+    tmp_path: Path, bad: float
+) -> None:
+    # A NaN/inf value would serialise as the schema-invalid literal "nan"/"inf".
+    # The writer must treat any non-finite value as absent instead.
+    activity = Activity(
+        segments=[
+            Segment(
+                points=[
+                    TrackPoint(
+                        time=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC),
+                        lat=bad,
+                        lon=4.0,
+                        ele=bad,
+                        distance=bad,
+                        speed=bad,
+                    )
+                ]
+            )
+        ],
+    )
+    path = tmp_path / "nonfinite.tcx"
+
+    write_tcx(activity, path)
+
+    text = path.read_text(encoding="utf-8")
+    assert "nan" not in text.lower()
+    assert "inf" not in text.lower()

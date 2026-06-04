@@ -40,7 +40,9 @@ TCX stores the fitness channels more directly than GPX: heart rate, cadence, and
 
 TCX also records a `<Creator>` element naming the recording device, which is the TCX equivalent of GPX's `creator` attribute; gpsmerge reads and writes the device name, and the unit id and product id when present.
 
-gpsmerge **reads and writes TCX**. On read the mandatory lap structure is flattened into the shared model: every `<Track>` (across all laps, in order) becomes a segment, so a pause between tracks survives as a segment boundary. On write gpsmerge emits a single lap — it does not model laps yet — containing one `<Track>` per segment, so those pauses are preserved. The one documented loss is temperature: because TCX has no field for it, `temp` is dropped on write and reads back as `None`, exactly how the model represents any absent channel.
+gpsmerge **reads and writes TCX**. On read the mandatory lap structure is flattened into the shared model: every `<Track>` (across all laps, in order) becomes a segment, so a pause between tracks survives as a segment boundary. A file may also hold several `<Activity>` elements — multisport and Training Center exports do this — and gpsmerge reads them all, concatenating every activity's tracks in document order (the sport, device, and creation time come from the first activity). On write gpsmerge emits a single lap — it does not model laps yet — containing one `<Track>` per segment, so those pauses are preserved. Timestamps are written to whole seconds when a point lands on one and to millisecond precision when it carries a fractional second, so sub-second points (time is the merge key) are not collapsed.
+
+Two losses are worth calling out. The first is temperature: because TCX has no field for it, `temp` is dropped on write and reads back as `None`, exactly how the model represents any absent channel. The second is **lap structure**: read laps are already flattened to tracks, and on write every segment lands in one single `<Lap>` regardless of the original lap boundaries — a deliberate round-trip loss pending a future Lap model.
 
 ## FIT — compact, binary, and everywhere on real devices
 

@@ -2,11 +2,17 @@
 
 TCX is Garmin's older XML format. Unlike GPX's bare list of points, TCX is built
 around laps: an ``<Activity>`` holds one or more ``<Lap>`` elements, and the
-trackpoints live inside a lap under a ``<Track>``. We do not model laps yet, so on
-read we flatten every lap's tracks into one segment list, and on write we emit a
-single lap whose tracks are our segments. Each ``<Track>`` is one continuous run
-of recording, so the gap between two tracks is a pause -- exactly our
+trackpoints live inside a lap under a ``<Track>``. A file may also hold several
+``<Activity>`` elements (multisport / Training Center), which we read in order. We
+do not model laps yet, so on read we flatten every lap's tracks (across every
+activity) into one segment list, and on write we emit a single lap whose tracks
+are our segments. Each ``<Track>`` is one continuous run of recording, so the gap
+between two tracks is a pause -- exactly our
 :class:`~gpsmerge.model.Segment` boundary.
+
+TCX is untrusted input, so it is parsed with a hardened lxml parser
+(:data:`_PARSER`) that resolves no entities, touches no network, and loads no DTD,
+closing off XXE and entity-expansion attacks.
 
 Two namespaces carry the data:
 
@@ -21,6 +27,7 @@ string, so a file is understood whichever prefix its author chose.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -28,6 +35,12 @@ from lxml import etree
 
 from gpsmerge.model import Activity, Device, Segment, TrackPoint
 from gpsmerge.timeutil import parse_time
+
+# A hardened parser for untrusted input. lxml's default parser resolves entities
+# and can be steered into reading local files (XXE) or expanding a nested-entity
+# "billion laughs" bomb. We turn all three off: do not resolve entities, never
+# touch the network, and do not load the DTD where those entities are defined.
+_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
 
 # Garmin namespaces, written exactly as Garmin Training Center produces them.
 # IMPORTANT: these are XML *namespace identifiers*, not URLs to fetch -- a browser
@@ -61,10 +74,15 @@ _TCX_OTHER_SPORT = "Other"
 # Used for the <Creator><Name> when an activity has no device name.
 _DEFAULT_CREATOR = "gpsmerge"
 
-# ISO-8601 in UTC with a trailing Z, the form TCX timestamps take. Whole seconds:
-# the formats we read record at one-second resolution, so we lose nothing.
+# ISO-8601 in UTC with a trailing Z, the form TCX timestamps take. Time is the
+# merge/overlap key, so we must not collapse sub-second points: we emit whole
+# seconds when a point lands on one, and milliseconds when it carries a fraction.
 _TCX_TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+_TCX_TIME_FORMAT_SUBSECOND = "%Y-%m-%dT%H:%M:%S.%fZ"
 _EPOCH_TIME = "1970-01-01T00:00:00Z"
+# strftime("%f") gives microseconds (6 digits); TCX timestamps use milliseconds,
+# so we keep the first three digits of the fractional second.
+_MILLISECONDS_DIGITS = 3
 
 SOURCE_FORMAT = "tcx"
 
@@ -72,10 +90,15 @@ SOURCE_FORMAT = "tcx"
 def read_tcx(path: Path) -> Activity:
     """Parse a TCX file into the canonical :class:`Activity`.
 
-    The first ``<Activity>`` is read. Its ``Sport`` attribute becomes the
-    canonical sport, every ``<Track>`` (across all laps, in order) becomes a
-    :class:`Segment`, and every ``<Trackpoint>`` a :class:`TrackPoint`. Power,
-    speed, and running cadence are read from the Garmin ActivityExtension.
+    Every ``<Activity>`` is read -- multisport and Training Center files can hold
+    several. Each one's ``<Track>`` elements (across all its laps, in order)
+    become :class:`Segment` objects, and they are concatenated in document order.
+    The sport, device, and creation time are taken from the first ``<Activity>``.
+    Every ``<Trackpoint>`` becomes a :class:`TrackPoint`; power, speed, and
+    running cadence are read from the Garmin ActivityExtension.
+
+    The file is parsed with a hardened parser (no entity resolution, no network,
+    no DTD loading) because TCX is untrusted input.
 
     Parameters
     ----------
@@ -89,23 +112,25 @@ def read_tcx(path: Path) -> Activity:
         set to ``str(path)``. Absent channels are ``None``, never ``0``, and
         every timestamp is timezone-aware UTC.
     """
-    tree = etree.parse(str(path))
+    tree = etree.parse(str(path), parser=_PARSER)
     root = tree.getroot()
 
-    activity_el = _find(root, "Activities/Activity")
-    if activity_el is None:
+    activities = _findall(root, "Activities/Activity")
+    if not activities:
         return Activity(source_format=SOURCE_FORMAT, source_path=str(path))
 
     segments = [
         Segment(points=[_read_point(tp) for tp in _findall(track, "Trackpoint")])
+        for activity_el in activities
         for track in _findall(activity_el, "Lap/Track")
     ]
 
+    first = activities[0]
     return Activity(
-        sport=_sport_from_attribute(activity_el.get("Sport")),
-        device=_read_device(activity_el),
+        sport=_sport_from_attribute(first.get("Sport")),
+        device=_read_device(first),
         segments=segments,
-        time_created=_read_id_time(activity_el),
+        time_created=_read_id_time(first),
         source_format=SOURCE_FORMAT,
         source_path=str(path),
     )
@@ -242,13 +267,21 @@ def write_tcx(activity: Activity, path: Path) -> None:
     Emits one ``<Activity>`` holding one ``<Lap>`` (we do not model laps yet) with
     one ``<Track>`` per segment, so pauses survive as separate tracks. Trackpoint
     children are written in TCX schema order, and only for channels that are not
-    ``None`` -- a missing channel is omitted, never written as ``0``.
+    ``None`` -- a missing channel is omitted, never written as ``0``. A non-finite
+    value (NaN or infinity) is treated as absent for the same reason. A point with
+    only one of latitude/longitude still gets a ``<Position>`` carrying the
+    coordinate it has, so a lone coordinate is not dropped. Times that carry a
+    fractional second are written with millisecond precision so sub-second points
+    survive.
 
     Two kinds of data cannot survive a TCX round-trip and are intentionally not
     written: per-point **temperature** -- TCX has no temperature field anywhere in
     its schema, so ``temp`` is dropped and reads back as ``None``; and the
     structured :class:`Device` identity beyond name, product, and serial number
     (manufacturer and software version have no place in the TCX ``<Creator>``).
+    Lap **structure** is also lost: any read activity's laps are already flattened
+    to tracks, and on write every segment lands in a single ``<Lap>`` regardless of
+    the original lap boundaries -- a deliberate loss pending a future Lap model.
 
     Heart rate and cadence are written as integers, as the schema requires.
 
@@ -333,8 +366,14 @@ def _total_seconds(activity: Activity) -> float:
 
 
 def _total_distance(activity: Activity) -> float:
-    """Return the largest recorded cumulative distance, or ``0`` if none recorded."""
-    distances = [p.distance for p in activity.points() if p.distance is not None]
+    """Return the largest recorded cumulative distance, or ``0`` if none recorded.
+
+    Non-finite distances are ignored so a stray NaN/inf cannot leak into the
+    schema-invalid lap ``DistanceMeters`` summary.
+    """
+    distances = [
+        finite for p in activity.points() if (finite := _finite(p.distance)) is not None
+    ]
     return max(distances) if distances else 0.0
 
 
@@ -345,16 +384,15 @@ def _write_point(track: etree._Element, point: TrackPoint) -> None:
     if point.time is not None:
         _child(trackpoint, "Time", _format_time(point.time))
 
-    if point.lat is not None and point.lon is not None:
-        position = etree.SubElement(trackpoint, _qualified(TCX_NS, "Position"))
-        _child(position, "LatitudeDegrees", _format_number(point.lat))
-        _child(position, "LongitudeDegrees", _format_number(point.lon))
+    _write_position(trackpoint, point)
 
-    if point.ele is not None:
-        _child(trackpoint, "AltitudeMeters", _format_number(point.ele))
+    ele = _finite(point.ele)
+    if ele is not None:
+        _child(trackpoint, "AltitudeMeters", _format_number(ele))
 
-    if point.distance is not None:
-        _child(trackpoint, "DistanceMeters", _format_number(point.distance))
+    distance = _finite(point.distance)
+    if distance is not None:
+        _child(trackpoint, "DistanceMeters", _format_number(distance))
 
     if point.hr is not None:
         hr = etree.SubElement(trackpoint, _qualified(TCX_NS, "HeartRateBpm"))
@@ -366,14 +404,33 @@ def _write_point(track: etree._Element, point: TrackPoint) -> None:
     _write_tpx(trackpoint, point)
 
 
+def _write_position(trackpoint: etree._Element, point: TrackPoint) -> None:
+    """Write the ``<Position>`` when either coordinate is present, omitting absentees.
+
+    The reader keeps a lone latitude or longitude, so requiring both here would
+    silently drop a recorded coordinate on a TCX round-trip. We emit ``<Position>``
+    whenever either finite coordinate exists and write only the children we have.
+    """
+    lat = _finite(point.lat)
+    lon = _finite(point.lon)
+    if lat is None and lon is None:
+        return
+    position = etree.SubElement(trackpoint, _qualified(TCX_NS, "Position"))
+    if lat is not None:
+        _child(position, "LatitudeDegrees", _format_number(lat))
+    if lon is not None:
+        _child(position, "LongitudeDegrees", _format_number(lon))
+
+
 def _write_tpx(trackpoint: etree._Element, point: TrackPoint) -> None:
     """Write the TPX extension for speed and power, or nothing if both are absent."""
-    if point.speed is None and point.power is None:
+    speed = _finite(point.speed)
+    if speed is None and point.power is None:
         return
     extensions = etree.SubElement(trackpoint, _qualified(TCX_NS, "Extensions"))
     tpx = etree.SubElement(extensions, _qualified(TPX_NS, "TPX"))
-    if point.speed is not None:
-        _child(tpx, "Speed", _format_number(point.speed), namespace=TPX_NS)
+    if speed is not None:
+        _child(tpx, "Speed", _format_number(speed), namespace=TPX_NS)
     if point.power is not None:
         _child(tpx, "Watts", str(int(point.power)), namespace=TPX_NS)
 
@@ -401,12 +458,33 @@ def _child(
 def _format_time(value: datetime | None) -> str:
     """Render a UTC datetime as TCX's ISO-8601 with a trailing ``Z``.
 
+    A point that carries microseconds is written with millisecond precision
+    (``...:SS.mmmZ``) because time is the merge key and sub-second points must
+    not collapse; a whole-second point is written without a fractional part.
     Falls back to the Unix epoch when `value` is ``None`` so the mandatory
     ``<Id>`` and lap ``StartTime`` always carry a valid timestamp.
     """
     if value is None:
         return _EPOCH_TIME
-    return value.strftime(_TCX_TIME_FORMAT)
+    if value.microsecond == 0:
+        return value.strftime(_TCX_TIME_FORMAT)
+    # strftime gives 6-digit microseconds; trim to milliseconds and re-add the Z.
+    formatted = value.strftime(_TCX_TIME_FORMAT_SUBSECOND)
+    fraction_start = formatted.index(".") + 1
+    millis = formatted[fraction_start : fraction_start + _MILLISECONDS_DIGITS]
+    return f"{formatted[: fraction_start - 1]}.{millis}Z"
+
+
+def _finite(value: float | None) -> float | None:
+    """Return `value` if it is a finite number, else ``None``.
+
+    A NaN or infinity would serialise to the literal ``"nan"``/``"inf"``, which
+    is invalid against the TCX schema, so we treat any non-finite value as an
+    absent channel -- the same as ``None``.
+    """
+    if value is None or not math.isfinite(value):
+        return None
+    return value
 
 
 def _format_number(value: float) -> str:
