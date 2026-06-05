@@ -21,3 +21,6 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# Local-only project notes (kept out of the repo)
+docs/status.md
