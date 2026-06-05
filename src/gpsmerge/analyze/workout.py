@@ -167,28 +167,294 @@ def detect_workout(activity: Activity, *, min_seconds: float = 10.0) -> Workout:
     RuntimeError
         If the optional ``numpy`` dependency is not installed.
     """
-    numpy = _load_numpy()
-    channel = _select_channel(activity)
+    return WorkoutDetector().detect(activity, min_seconds=min_seconds)
 
-    times, grid = _build_grid(activity, channel)  # raw 1 Hz series (with gaps)
-    raw = numpy.array(grid, dtype=float)
-    _require_enough_signal(raw, numpy)
 
-    filled = _fill_gaps(raw, numpy)
-    smoothed = _smooth(filled, numpy)
+class WorkoutDetector:
+    """Recovers interval structure from an activity's power or speed channel.
 
-    ride_average = float(numpy.nanmean(raw))
-    delta_min = max(_floor(channel), K_AVG * abs(ride_average))
+    Owns the lazily-loaded ``numpy`` module the segmentation maths runs on, so
+    the per-step helpers share it through ``self`` rather than threading it as a
+    parameter. Construct one and call :meth:`detect`.
+    """
 
-    bounds = _segment(smoothed, delta_min, min_seconds, numpy)
-    intervals = _build_intervals(times, raw, bounds, numpy)
+    def __init__(self) -> None:
+        self._np = _load_numpy()
 
-    boundaries = [iv.start_time for iv in intervals]
-    laps = laps_from_boundaries(
-        boundaries, activity_end=intervals[-1].end_time, trigger=channel
-    )
-    summary = _summarise(intervals, channel)
-    return Workout(channel=channel, intervals=intervals, laps=laps, summary=summary)
+    def detect(self, activity: Activity, *, min_seconds: float = 10.0) -> Workout:
+        """Detect a workout from ``activity``; see :func:`detect_workout`."""
+        numpy = self._np
+        channel = _select_channel(activity)
+
+        times, grid = _build_grid(activity, channel)  # raw 1 Hz series (with gaps)
+        raw = numpy.array(grid, dtype=float)
+        self._require_enough_signal(raw)
+
+        filled = self._fill_gaps(raw)
+        smoothed = self._smooth(filled)
+
+        ride_average = float(numpy.nanmean(raw))
+        delta_min = max(_floor(channel), K_AVG * abs(ride_average))
+
+        bounds = self._segment(smoothed, delta_min, min_seconds)
+        intervals = self._build_intervals(times, raw, bounds)
+
+        boundaries = [iv.start_time for iv in intervals]
+        laps = laps_from_boundaries(
+            boundaries, activity_end=intervals[-1].end_time, trigger=channel
+        )
+        summary = _summarise(intervals, channel)
+        return Workout(channel=channel, intervals=intervals, laps=laps, summary=summary)
+
+    def _require_enough_signal(self, raw: np.ndarray) -> None:
+        """Raise if the resampled trace is too thin to detect a workout from.
+
+        Two cheap checks: the span must be at least ``MIN_SECONDS`` long, and at
+        least ``MIN_COVERAGE`` of the grid points must carry a (non-``NaN``)
+        value. Below either, the trace is too sparse to trust, so the same clear
+        no-data error is raised rather than returning a fabricated workout.
+        """
+        numpy = self._np
+        present = int(numpy.count_nonzero(~numpy.isnan(raw)))
+        span_seconds = len(raw) / GRID_HZ
+        coverage = present / len(raw) if len(raw) else 0.0
+        if span_seconds < MIN_SECONDS or coverage < MIN_COVERAGE or present < 2:
+            raise WorkoutError(
+                "not enough effort data to detect a workout from: the activity "
+                f"needs at least {int(MIN_SECONDS)} seconds of recorded power or "
+                f"speed with reasonable coverage (got {span_seconds:.0f} s, "
+                f"{coverage * 100:.0f}% covered)"
+            )
+
+    def _fill_gaps(self, raw: np.ndarray) -> np.ndarray:
+        """Return a gap-free copy of the trace, filling short ``NaN`` runs.
+
+        Smoothing and segmentation want a contiguous array. Short gaps (already
+        bounded by lerp's max-gap blanking upstream) are filled by carrying the
+        last known value forward, then back-filling any leading ``NaN`` from the
+        first known value, so the array is finite everywhere without inventing
+        structure.
+
+        Carry-forward bridges a gap rather than breaking at it, so a *long*
+        recording dropout (minutes with no power or speed) is folded into the
+        neighbouring interval: that interval's duration then spans the dropout,
+        though its average still reflects only real samples (see
+        ``_build_intervals``). Detection assumes a continuously recorded effort;
+        this is a documented BETA limitation.
+        """
+        numpy = self._np
+        filled = raw.copy()
+        n = len(filled)
+        last = float("nan")
+        for i in range(n):
+            if numpy.isnan(filled[i]):
+                filled[i] = last
+            else:
+                last = float(filled[i])
+        # Back-fill any leading NaN with the first finite value.
+        finite = numpy.where(~numpy.isnan(filled))[0]
+        if len(finite):
+            first_value = filled[finite[0]]
+            filled[: finite[0]] = first_value
+        return filled
+
+    def _smooth(self, values: np.ndarray) -> np.ndarray:
+        """Return a centred moving average of ``values`` over ``SMOOTH_WINDOW_S``.
+
+        A short centred average suppresses single-sample spikes before
+        segmentation. The window is odd (so it is centred) and uses ``mode="same"``
+        with edge padding, so the result is the same length as the input and the
+        ends are not dragged towards zero.
+        """
+        numpy = self._np
+        window = SMOOTH_WINDOW_S if SMOOTH_WINDOW_S % 2 == 1 else SMOOTH_WINDOW_S + 1
+        if len(values) < window:
+            return values
+        half = window // 2
+        padded = numpy.pad(values, half, mode="edge")
+        kernel = numpy.ones(window) / window
+        return numpy.convolve(padded, kernel, mode="valid")
+
+    def _segment(
+        self, smoothed: np.ndarray, delta_min: float, min_seconds: float
+    ) -> list[tuple[int, int]]:
+        """Segment the smoothed trace into piecewise-constant steps.
+
+        A mean-shift contiguous pass produces the initial steps, then two
+        post-processing passes that are where the ride-average scaling bites:
+
+        1. Merge adjacent segments whose means differ by less than ``delta_min``.
+           This collapses within-block jitter into one effort and is what stops a
+           hard ride fragmenting into dozens of laps.
+        2. Absorb every segment shorter than ``min_seconds`` into a neighbour.
+           ``min_seconds`` is the shortest interval worth reporting, so this is the
+           knob that genuinely coarsens the overlay: at the 10 s default a 20 s
+           sprint survives and a 4 s blip is merged; raise it and short reps fold
+           away too.
+
+        Returns
+        -------
+        list of (int, int)
+            ``(start_index, end_index)`` half-open spans over the grid, contiguous
+            and covering the whole trace.
+        """
+        n = len(smoothed)
+        if n == 0:
+            return []
+        bounds = self._mean_shift(smoothed, delta_min)
+        bounds = self._merge_similar(bounds, smoothed, delta_min)
+        bounds = self._absorb_short(bounds, smoothed, min_seconds)
+        bounds = self._merge_similar(bounds, smoothed, delta_min)
+        return bounds
+
+    def _mean_shift(
+        self, smoothed: np.ndarray, delta_min: float
+    ) -> list[tuple[int, int]]:
+        """Group the trace into contiguous runs that each hold one effort level.
+
+        Walks the smoothed trace once, keeping a running mean of the current run.
+        A sample joins the run while it stays within ``delta_min`` of that running
+        mean; the first sample that departs by ``delta_min`` closes the run and
+        opens a new one. This is the cheap, numpy-only alternative to a
+        change-point library, and it has a property a naive per-sample diff lacks:
+        the gradual ramp the smoothing leaves at a sharp step is *absorbed* into
+        whichever block it is still close to, rather than fragmenting into one
+        segment per ramp sample. Only when the cumulative drift reaches
+        ``delta_min`` does a new effort begin -- exactly the "sustained change of
+        at least delta_min" the design calls for.
+
+        Returns the half-open ``(start, end)`` spans, contiguous over the trace.
+        """
+        n = len(smoothed)
+        bounds: list[tuple[int, int]] = []
+        start = 0
+        run_sum = float(smoothed[0])
+        run_count = 1
+        for i in range(1, n):
+            value = float(smoothed[i])
+            run_mean = run_sum / run_count
+            if abs(value - run_mean) >= delta_min:
+                bounds.append((start, i))
+                start = i
+                run_sum = value
+                run_count = 1
+            else:
+                run_sum += value
+                run_count += 1
+        bounds.append((start, n))
+        return bounds
+
+    def _seg_mean(self, smoothed: np.ndarray, span: tuple[int, int]) -> float:
+        """Return the mean of the smoothed trace over a half-open span."""
+        return float(self._np.mean(smoothed[span[0] : span[1]]))
+
+    def _merge_similar(
+        self, bounds: list[tuple[int, int]], smoothed: np.ndarray, delta_min: float
+    ) -> list[tuple[int, int]]:
+        """Merge adjacent segments whose means differ by less than ``delta_min``.
+
+        Repeated until stable, so a chain of small steps that each sit within
+        ``delta_min`` of their neighbour collapses into the one effort they really
+        are. This is the pass that the ride-average scaling drives: on a
+        high-average ride a +30 W wobble is below ``delta_min`` and merges away; on
+        a low-average ride the same wobble clears ``delta_min`` and is kept.
+        """
+        changed = True
+        while changed and len(bounds) > 1:
+            changed = False
+            merged: list[tuple[int, int]] = [bounds[0]]
+            for span in bounds[1:]:
+                prev = merged[-1]
+                if (
+                    abs(self._seg_mean(smoothed, prev) - self._seg_mean(smoothed, span))
+                    < delta_min
+                ):
+                    merged[-1] = (prev[0], span[1])
+                    changed = True
+                else:
+                    merged.append(span)
+            bounds = merged
+        return bounds
+
+    def _absorb_short(
+        self,
+        bounds: list[tuple[int, int]],
+        smoothed: np.ndarray,
+        min_seconds: float,
+    ) -> list[tuple[int, int]]:
+        """Absorb every segment shorter than ``min_seconds`` into a neighbour.
+
+        ``min_seconds`` is the shortest interval worth reporting: a shorter segment
+        is folded into whichever neighbour it is closer in mean to. Raising the
+        knob therefore genuinely coarsens the overlay -- it is the one lever a user
+        turns for fewer, longer intervals -- while the default (10 s) still keeps
+        short reps: a 20 s sprint survives, a 4 s blip is merged. Walks left to
+        right, re-evaluating after each fold so a string of tiny blips collapses
+        cleanly.
+        """
+        min_samples = min_seconds * GRID_HZ
+        changed = True
+        while changed and len(bounds) > 1:
+            changed = False
+            for i, span in enumerate(bounds):
+                if span[1] - span[0] >= min_samples:
+                    continue
+                bounds = self._fold_into_neighbour(bounds, i, smoothed)
+                changed = True
+                break
+        return bounds
+
+    def _fold_into_neighbour(
+        self, bounds: list[tuple[int, int]], i: int, smoothed: np.ndarray
+    ) -> list[tuple[int, int]]:
+        """Merge segment ``i`` into its nearer-in-mean neighbour, returning new bounds."""
+        here = self._seg_mean(smoothed, bounds[i])
+        fold_left = i > 0 and (
+            i == len(bounds) - 1
+            or abs(here - self._seg_mean(smoothed, bounds[i - 1]))
+            <= abs(here - self._seg_mean(smoothed, bounds[i + 1]))
+        )
+        result = list(bounds)
+        if fold_left:
+            result[i - 1 : i + 1] = [(bounds[i - 1][0], bounds[i][1])]
+        else:
+            result[i : i + 2] = [(bounds[i][0], bounds[i + 1][1])]
+        return result
+
+    def _build_intervals(
+        self, times: list[datetime], raw: np.ndarray, bounds: list[tuple[int, int]]
+    ) -> list[Interval]:
+        """Turn segment spans into :class:`Interval` steps with raw-sample averages.
+
+        Each interval's average is the mean of the *raw* (pre-smoothing) samples in
+        its span -- the smoothing was only ever to find the boundaries, so the
+        reported number reflects the real recorded effort. A span whose raw samples
+        are all ``NaN`` (a gap) falls back to ``0.0`` rather than producing ``NaN``.
+        """
+        numpy = self._np
+        intervals: list[Interval] = []
+        last_index = len(times) - 1
+        for start, end in bounds:
+            # The span is half-open over grid indices; the interval's end time is
+            # the last grid point it covers (end - 1), so consecutive intervals
+            # abut.
+            end_index = min(end, last_index)
+            segment = raw[start:end]
+            with _suppress_nan_warning(numpy):
+                mean = float(numpy.nanmean(segment)) if len(segment) else 0.0
+            if mean != mean:  # NaN: an all-gap span
+                mean = 0.0
+            start_time = times[start]
+            end_time = times[end_index]
+            intervals.append(
+                Interval(
+                    start_time=start_time,
+                    end_time=end_time,
+                    average=mean,
+                    duration_seconds=(end_time - start_time).total_seconds(),
+                )
+            )
+        return intervals
 
 
 def _load_numpy() -> Any:
@@ -309,257 +575,6 @@ def _from_seconds(seconds: float) -> datetime:
     from datetime import UTC
 
     return datetime.fromtimestamp(seconds, tz=UTC)
-
-
-def _require_enough_signal(raw: np.ndarray, numpy: Any) -> None:
-    """Raise if the resampled trace is too thin to detect a workout from.
-
-    Two cheap checks: the span must be at least ``MIN_SECONDS`` long, and at
-    least ``MIN_COVERAGE`` of the grid points must carry a (non-``NaN``) value.
-    Below either, the trace is too sparse to trust, so the same clear no-data
-    error is raised rather than returning a fabricated workout.
-    """
-    present = int(numpy.count_nonzero(~numpy.isnan(raw)))
-    span_seconds = len(raw) / GRID_HZ
-    coverage = present / len(raw) if len(raw) else 0.0
-    if span_seconds < MIN_SECONDS or coverage < MIN_COVERAGE or present < 2:
-        raise WorkoutError(
-            "not enough effort data to detect a workout from: the activity needs "
-            f"at least {int(MIN_SECONDS)} seconds of recorded power or speed with "
-            f"reasonable coverage (got {span_seconds:.0f} s, "
-            f"{coverage * 100:.0f}% covered)"
-        )
-
-
-def _fill_gaps(raw: np.ndarray, numpy: Any) -> np.ndarray:
-    """Return a gap-free copy of the trace, filling short ``NaN`` runs.
-
-    Smoothing and segmentation want a contiguous array. Short gaps (already
-    bounded by lerp's max-gap blanking upstream) are filled by carrying the last
-    known value forward, then back-filling any leading ``NaN`` from the first
-    known value, so the array is finite everywhere without inventing structure.
-
-    Carry-forward bridges a gap rather than breaking at it, so a *long* recording
-    dropout (minutes with no power or speed) is folded into the neighbouring
-    interval: that interval's duration then spans the dropout, though its average
-    still reflects only real samples (see ``_build_intervals``). Detection assumes
-    a continuously recorded effort; this is a documented BETA limitation.
-    """
-    filled = raw.copy()
-    n = len(filled)
-    last = float("nan")
-    for i in range(n):
-        if numpy.isnan(filled[i]):
-            filled[i] = last
-        else:
-            last = float(filled[i])
-    # Back-fill any leading NaN with the first finite value.
-    finite = numpy.where(~numpy.isnan(filled))[0]
-    if len(finite):
-        first_value = filled[finite[0]]
-        filled[: finite[0]] = first_value
-    return filled
-
-
-def _smooth(values: np.ndarray, numpy: Any) -> np.ndarray:
-    """Return a centred moving average of ``values`` over ``SMOOTH_WINDOW_S``.
-
-    A short centred average suppresses single-sample spikes before segmentation.
-    The window is odd (so it is centred) and uses ``mode="same"`` with edge
-    padding, so the result is the same length as the input and the ends are not
-    dragged towards zero.
-    """
-    window = SMOOTH_WINDOW_S if SMOOTH_WINDOW_S % 2 == 1 else SMOOTH_WINDOW_S + 1
-    if len(values) < window:
-        return values
-    half = window // 2
-    padded = numpy.pad(values, half, mode="edge")
-    kernel = numpy.ones(window) / window
-    return numpy.convolve(padded, kernel, mode="valid")
-
-
-def _segment(
-    smoothed: np.ndarray, delta_min: float, min_seconds: float, numpy: Any
-) -> list[tuple[int, int]]:
-    """Segment the smoothed trace into piecewise-constant steps.
-
-    A mean-shift contiguous pass produces the initial steps, then two
-    post-processing passes that are where the ride-average scaling bites:
-
-    1. Merge adjacent segments whose means differ by less than ``delta_min``.
-       This collapses within-block jitter into one effort and is what stops a
-       hard ride fragmenting into dozens of laps.
-    2. Absorb every segment shorter than ``min_seconds`` into a neighbour.
-       ``min_seconds`` is the shortest interval worth reporting, so this is the
-       knob that genuinely coarsens the overlay: at the 10 s default a 20 s sprint
-       survives and a 4 s blip is merged; raise it and short reps fold away too.
-
-    Returns
-    -------
-    list of (int, int)
-        ``(start_index, end_index)`` half-open spans over the grid, contiguous
-        and covering the whole trace.
-    """
-    n = len(smoothed)
-    if n == 0:
-        return []
-    bounds = _mean_shift(smoothed, delta_min, numpy)
-    bounds = _merge_similar(bounds, smoothed, delta_min, numpy)
-    bounds = _absorb_short(bounds, smoothed, min_seconds, numpy)
-    bounds = _merge_similar(bounds, smoothed, delta_min, numpy)
-    return bounds
-
-
-def _mean_shift(
-    smoothed: np.ndarray, delta_min: float, numpy: Any
-) -> list[tuple[int, int]]:
-    """Group the trace into contiguous runs that each hold one effort level.
-
-    Walks the smoothed trace once, keeping a running mean of the current run. A
-    sample joins the run while it stays within ``delta_min`` of that running
-    mean; the first sample that departs by ``delta_min`` closes the run and opens
-    a new one. This is the cheap, numpy-only alternative to a change-point
-    library, and it has a property a naive per-sample diff lacks: the gradual
-    ramp the smoothing leaves at a sharp step is *absorbed* into whichever block
-    it is still close to, rather than fragmenting into one segment per ramp
-    sample. Only when the cumulative drift reaches ``delta_min`` does a new
-    effort begin -- exactly the "sustained change of at least delta_min" the
-    design calls for.
-
-    Returns the half-open ``(start, end)`` spans, contiguous over the trace.
-    """
-    n = len(smoothed)
-    bounds: list[tuple[int, int]] = []
-    start = 0
-    run_sum = float(smoothed[0])
-    run_count = 1
-    for i in range(1, n):
-        value = float(smoothed[i])
-        run_mean = run_sum / run_count
-        if abs(value - run_mean) >= delta_min:
-            bounds.append((start, i))
-            start = i
-            run_sum = value
-            run_count = 1
-        else:
-            run_sum += value
-            run_count += 1
-    bounds.append((start, n))
-    return bounds
-
-
-def _seg_mean(smoothed: np.ndarray, span: tuple[int, int], numpy: Any) -> float:
-    """Return the mean of the smoothed trace over a half-open span."""
-    return float(numpy.mean(smoothed[span[0] : span[1]]))
-
-
-def _merge_similar(
-    bounds: list[tuple[int, int]], smoothed: np.ndarray, delta_min: float, numpy: Any
-) -> list[tuple[int, int]]:
-    """Merge adjacent segments whose means differ by less than ``delta_min``.
-
-    Repeated until stable, so a chain of small steps that each sit within
-    ``delta_min`` of their neighbour collapses into the one effort they really
-    are. This is the pass that the ride-average scaling drives: on a high-average
-    ride a +30 W wobble is below ``delta_min`` and merges away; on a low-average
-    ride the same wobble clears ``delta_min`` and is kept.
-    """
-    changed = True
-    while changed and len(bounds) > 1:
-        changed = False
-        merged: list[tuple[int, int]] = [bounds[0]]
-        for span in bounds[1:]:
-            prev = merged[-1]
-            if (
-                abs(_seg_mean(smoothed, prev, numpy) - _seg_mean(smoothed, span, numpy))
-                < delta_min
-            ):
-                merged[-1] = (prev[0], span[1])
-                changed = True
-            else:
-                merged.append(span)
-        bounds = merged
-    return bounds
-
-
-def _absorb_short(
-    bounds: list[tuple[int, int]],
-    smoothed: np.ndarray,
-    min_seconds: float,
-    numpy: Any,
-) -> list[tuple[int, int]]:
-    """Absorb every segment shorter than ``min_seconds`` into a neighbour.
-
-    ``min_seconds`` is the shortest interval worth reporting: a shorter segment is
-    folded into whichever neighbour it is closer in mean to. Raising the knob
-    therefore genuinely coarsens the overlay -- it is the one lever a user turns
-    for fewer, longer intervals -- while the default (10 s) still keeps short
-    reps: a 20 s sprint survives, a 4 s blip is merged. Walks left to right,
-    re-evaluating after each fold so a string of tiny blips collapses cleanly.
-    """
-    min_samples = min_seconds * GRID_HZ
-    changed = True
-    while changed and len(bounds) > 1:
-        changed = False
-        for i, span in enumerate(bounds):
-            if span[1] - span[0] >= min_samples:
-                continue
-            bounds = _fold_into_neighbour(bounds, i, smoothed, numpy)
-            changed = True
-            break
-    return bounds
-
-
-def _fold_into_neighbour(
-    bounds: list[tuple[int, int]], i: int, smoothed: np.ndarray, numpy: Any
-) -> list[tuple[int, int]]:
-    """Merge segment ``i`` into its nearer-in-mean neighbour, returning new bounds."""
-    here = _seg_mean(smoothed, bounds[i], numpy)
-    fold_left = i > 0 and (
-        i == len(bounds) - 1
-        or abs(here - _seg_mean(smoothed, bounds[i - 1], numpy))
-        <= abs(here - _seg_mean(smoothed, bounds[i + 1], numpy))
-    )
-    result = list(bounds)
-    if fold_left:
-        result[i - 1 : i + 1] = [(bounds[i - 1][0], bounds[i][1])]
-    else:
-        result[i : i + 2] = [(bounds[i][0], bounds[i + 1][1])]
-    return result
-
-
-def _build_intervals(
-    times: list[datetime], raw: np.ndarray, bounds: list[tuple[int, int]], numpy: Any
-) -> list[Interval]:
-    """Turn segment spans into :class:`Interval` steps with raw-sample averages.
-
-    Each interval's average is the mean of the *raw* (pre-smoothing) samples in
-    its span -- the smoothing was only ever to find the boundaries, so the
-    reported number reflects the real recorded effort. A span whose raw samples
-    are all ``NaN`` (a gap) falls back to ``0.0`` rather than producing ``NaN``.
-    """
-    intervals: list[Interval] = []
-    last_index = len(times) - 1
-    for start, end in bounds:
-        # The span is half-open over grid indices; the interval's end time is the
-        # last grid point it covers (end - 1), so consecutive intervals abut.
-        end_index = min(end, last_index)
-        segment = raw[start:end]
-        with _suppress_nan_warning(numpy):
-            mean = float(numpy.nanmean(segment)) if len(segment) else 0.0
-        if mean != mean:  # NaN: an all-gap span
-            mean = 0.0
-        start_time = times[start]
-        end_time = times[end_index]
-        intervals.append(
-            Interval(
-                start_time=start_time,
-                end_time=end_time,
-                average=mean,
-                duration_seconds=(end_time - start_time).total_seconds(),
-            )
-        )
-    return intervals
 
 
 class _suppress_nan_warning:
