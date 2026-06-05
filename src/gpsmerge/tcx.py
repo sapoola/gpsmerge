@@ -33,9 +33,9 @@ from pathlib import Path
 
 from lxml import etree
 
-from gpsmerge.geo import cumulative_distance
 from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
-from gpsmerge.timeutil import parse_time
+from gpsmerge.util.geo import cumulative_distance
+from gpsmerge.util.timeutil import parse_time
 
 # A hardened parser for untrusted input. lxml's default parser resolves entities
 # and can be steered into reading local files (XXE) or expanding a nested-entity

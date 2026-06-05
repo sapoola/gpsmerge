@@ -7,7 +7,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from gpsmerge.geo import (
+from gpsmerge.model import TrackPoint
+from gpsmerge.util.geo import (
     EARTH_RADIUS_M,
     cumulative_distance,
     degrees_to_semicircles,
@@ -15,7 +16,6 @@ from gpsmerge.geo import (
     parse_distance,
     semicircles_to_degrees,
 )
-from gpsmerge.model import TrackPoint
 
 # A degree of latitude along a meridian is EARTH_RADIUS_M * pi / 180 metres,
 # independent of longitude. With the IUGG mean radius this is ~111.19 km.

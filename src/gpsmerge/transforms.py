@@ -32,8 +32,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 
 from gpsmerge.errors import TransformError
-from gpsmerge.geo import cumulative_distance
 from gpsmerge.model import Activity, Lap, Segment, TrackPoint
+from gpsmerge.util.geo import cumulative_distance
 
 # A smoothing window must be odd (so it is centred on its point) and at least
 # three wide (so it actually averages neighbours). The caller validates this; the
@@ -339,7 +339,7 @@ def auto_lap(activity: Activity, interval_m: float) -> Activity:
 
     Distance comes from each point's recorded ``distance`` when the channel is
     present and non-decreasing; otherwise it is recomputed from the positions
-    with :func:`gpsmerge.geo.cumulative_distance`. A device that stops emitting
+    with :func:`gpsmerge.util.geo.cumulative_distance`. A device that stops emitting
     distance while stationary, or one point's stray backwards value, drops the
     whole activity to the position recompute so a single glitch cannot mis-place
     a boundary.

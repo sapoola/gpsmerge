@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from gpsmerge.errors import TransformError
-from gpsmerge.geo import EARTH_RADIUS_M
 from gpsmerge.model import Activity, Lap, Segment, TrackPoint
 from gpsmerge.transforms import (
     auto_lap,
@@ -18,6 +17,7 @@ from gpsmerge.transforms import (
     smooth_elevation,
     trim,
 )
+from gpsmerge.util.geo import EARTH_RADIUS_M
 
 _BASE = datetime(2026, 6, 4, 8, 0, 0, tzinfo=UTC)
 

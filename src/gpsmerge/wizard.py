@@ -28,13 +28,13 @@ from rich.table import Table
 from gpsmerge import banner, profiles
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
-from gpsmerge.geo import parse_distance
 from gpsmerge.merge import detect_mode
 from gpsmerge.model import Activity
 from gpsmerge.pipeline import RunResult
 from gpsmerge.pipeline import run as run_pipeline
 from gpsmerge.read import READABLE_SUFFIXES, read
-from gpsmerge.timeutil import local_range, utc_range, zone_label
+from gpsmerge.util.geo import parse_distance
+from gpsmerge.util.timeutil import local_range, utc_range, zone_label
 
 # Minimum files a merge needs; fewer keeps the add-files loop going.
 MIN_INPUTS = 2

@@ -12,7 +12,7 @@ Two FIT specifics are handled here rather than left to the model:
 
 - **Position is in semicircles, not degrees.** The ``record`` message stores
   latitude and longitude as signed 32-bit integers; we convert them with
-  :func:`gpsmerge.geo.semicircles_to_degrees`.
+  :func:`gpsmerge.util.geo.semicircles_to_degrees`.
 - **Enhanced channels win.** FIT carries both ``altitude``/``speed`` and the
   wider-range ``enhanced_altitude``/``enhanced_speed``. When an enhanced value
   is present we prefer it, because it is the one a modern device records when the
@@ -32,8 +32,8 @@ from typing import Any, Protocol
 import fitdecode
 
 from gpsmerge.errors import WriteError
-from gpsmerge.geo import semicircles_to_degrees
 from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
+from gpsmerge.util.geo import semicircles_to_degrees
 
 SOURCE_FORMAT = "fit"
 

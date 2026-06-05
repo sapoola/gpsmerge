@@ -22,7 +22,7 @@ from gpsmerge.errors import (
     Issue,
 )
 from gpsmerge.model import Activity
-from gpsmerge.timeutil import parse_duration, parse_time, parse_timezone
+from gpsmerge.util.timeutil import parse_duration, parse_time, parse_timezone
 
 MIN_INPUTS_TO_MERGE = 2
 

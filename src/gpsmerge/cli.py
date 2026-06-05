@@ -23,10 +23,10 @@ from rich.console import Console
 from gpsmerge import __version__, profiles, wizard
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
-from gpsmerge.geo import parse_distance
 from gpsmerge.pipeline import RunResult
 from gpsmerge.pipeline import run as run_pipeline
-from gpsmerge.timeutil import local_range, utc_range, zone_label
+from gpsmerge.util.geo import parse_distance
+from gpsmerge.util.timeutil import local_range, utc_range, zone_label
 
 app = typer.Typer(
     name="gpsmerge",

@@ -20,9 +20,9 @@ from pathlib import Path
 
 from gpsmerge import alignment
 from gpsmerge.config import Settings
-from gpsmerge.geo import haversine
 from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
-from gpsmerge.resample import lerp
+from gpsmerge.util.geo import haversine
+from gpsmerge.util.resample import lerp
 
 # Two points at a seam are "the same point" (and one is dropped) if they are this
 # close in both time and space. A genuine next point is at least a sample apart in

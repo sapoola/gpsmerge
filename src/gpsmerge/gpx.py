@@ -193,7 +193,7 @@ def write_gpx(activity: Activity, path: Path) -> None:
     serial number, software version) -- GPX has only a single ``creator`` string,
     so only ``device.name`` is kept; per-point ``distance`` -- GPX has no
     trackpoint distance element, so distance is recomputed from positions via
-    :func:`gpsmerge.geo.cumulative_distance` when needed rather than stored; and
+    :func:`gpsmerge.util.geo.cumulative_distance` when needed rather than stored; and
     per-point ``speed`` -- GPX 1.1, which we emit because it is the version that
     carries the Garmin fitness extensions, has no trackpoint speed element.
     (``read_gpx`` still reads ``speed`` from older GPX 1.0 files that include it.)

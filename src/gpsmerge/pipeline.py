@@ -25,11 +25,9 @@ from gpsmerge.errors import (
     WorkoutError,
     WriteError,
 )
-from gpsmerge.geo import cumulative_distance, haversine
 from gpsmerge.merge import append, detect_mode, stack
 from gpsmerge.model import Activity, TrackPoint
 from gpsmerge.read import read
-from gpsmerge.timeutil import parse_duration, parse_time, parse_timezone
 from gpsmerge.transforms import (
     auto_lap,
     insert_stopped_time,
@@ -37,6 +35,8 @@ from gpsmerge.transforms import (
     smooth_elevation,
     trim,
 )
+from gpsmerge.util.geo import cumulative_distance, haversine
+from gpsmerge.util.timeutil import parse_duration, parse_time, parse_timezone
 from gpsmerge.validate import validate
 from gpsmerge.workout import detect_workout
 from gpsmerge.write import write
@@ -253,7 +253,7 @@ def _build_preview(
         The merged activity to describe.
     timezone : str or None
         A timezone spec for local display only (see
-        :func:`gpsmerge.timeutil.parse_timezone`). When given and valid, the
+        :func:`gpsmerge.util.timeutil.parse_timezone`). When given and valid, the
         preview also carries the start/end shown in that zone; the activity's
         own timestamps are never touched.
     workout_summary : str or None

@@ -45,8 +45,8 @@ from typing import TYPE_CHECKING, Any
 
 from gpsmerge.errors import WorkoutError
 from gpsmerge.model import Activity, Lap
-from gpsmerge.resample import lerp
 from gpsmerge.transforms import laps_from_boundaries
+from gpsmerge.util.resample import lerp
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     import numpy as np
@@ -276,7 +276,7 @@ def _build_grid(
     """Resample a channel onto a 1 Hz grid over the activity's timed span.
 
     The recorded ``(time, value)`` samples are interpolated with
-    :func:`gpsmerge.resample.lerp` onto one-second steps from the first to the
+    :func:`gpsmerge.util.resample.lerp` onto one-second steps from the first to the
     last sample. A grid point inside a recording gap longer than the smoothing
     window comes back ``None`` (lerp blanks wide brackets), so genuine dropouts
     are not invented across.

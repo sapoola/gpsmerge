@@ -15,13 +15,13 @@ moved.
 
 Pure Python and model-aware only through reading points; the correlation itself
 works on plain ``(time_seconds, value)`` numbers and reuses
-:func:`gpsmerge.resample.lerp` to sample each side on a common grid.
+:func:`gpsmerge.util.resample.lerp` to sample each side on a common grid.
 """
 
 from __future__ import annotations
 
 from gpsmerge.model import Activity
-from gpsmerge.resample import lerp
+from gpsmerge.util.resample import lerp
 
 # How far, in seconds, a donor clock is allowed to be off. Real devices drift by
 # a handful of seconds; searching wider only invites a spurious correlation peak.
