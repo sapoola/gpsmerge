@@ -70,6 +70,26 @@ _DEFAULT_CREATOR = "gpsmerge"
 SOURCE_FORMAT = "gpx"
 
 
+class GpxCodec:
+    """GPX format handler for the read/write registry.
+
+    GPX needs no per-file state, so this groups :func:`read_gpx` and
+    :func:`write_gpx` behind the ``read``/``write`` interface the registry
+    dispatches on.
+    """
+
+    suffix = ".gpx"
+    output_format = "gpx"
+
+    def read(self, path: Path) -> Activity:
+        """Read a GPX file into an :class:`Activity`."""
+        return read_gpx(path)
+
+    def write(self, activity: Activity, path: Path) -> None:
+        """Write ``activity`` to ``path`` as GPX."""
+        write_gpx(activity, path)
+
+
 def read_gpx(path: Path) -> Activity:
     """Parse a GPX file into the canonical :class:`Activity`.
 

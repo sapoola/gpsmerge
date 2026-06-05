@@ -109,6 +109,34 @@ _FIT_TOOL_MISSING = (
 )
 
 
+class FitCodec:
+    """FIT format handler for the read/write registry.
+
+    Owns the lazily-imported fit-tool module (the optional writer dependency) as
+    ``self._fit``, loaded on the first write, so the registry's single codec
+    imports it once. Reading needs only fitdecode, a core dependency.
+    """
+
+    suffix = ".fit"
+    output_format = "fit"
+
+    def __init__(self) -> None:
+        self._fit: _FitTool | None = None
+
+    def read(self, path: Path) -> Activity:
+        """Read a FIT file into an :class:`Activity`."""
+        return read_fit(path)
+
+    def write(self, activity: Activity, path: Path) -> None:
+        """Write ``activity`` to ``path`` as FIT; see :func:`write_fit`."""
+        if self._fit is None:
+            self._fit = _load_fit_tool()
+        builder = self._fit.FitFileBuilder(auto_define=True)
+        for message in _build_messages(activity, self._fit):
+            builder.add(message)
+        builder.build().to_file(str(path))
+
+
 def read_fit(path: Path) -> Activity:
     """Parse a FIT file into the canonical :class:`Activity`.
 
@@ -467,11 +495,7 @@ def write_fit(activity: Activity, path: Path) -> None:
     WriteError
         If a channel value falls outside the range FIT can store.
     """
-    fit = _load_fit_tool()
-    builder = fit.FitFileBuilder(auto_define=True)
-    for message in _build_messages(activity, fit):
-        builder.add(message)
-    builder.build().to_file(str(path))
+    FitCodec().write(activity, path)
 
 
 class _FitTool:

@@ -1,8 +1,8 @@
 """Write an :class:`~gpsmerge.model.Activity` to a file in a chosen format.
 
-The mirror of :mod:`gpsmerge.io.read`: one place that maps an output format name to
-a writer. Adding a format is one ``if`` branch plus its ``write_<format>``
-function.
+Dispatch mirrors :mod:`gpsmerge.io.read`: the codec registry maps an output
+format name to the codec that serialises it, and every write goes through
+:func:`_write_atomic` so a failure never leaves a half-written file.
 """
 
 from __future__ import annotations
@@ -13,19 +13,15 @@ from pathlib import Path
 from tempfile import mkstemp
 
 from gpsmerge.errors import UnsupportedFormat
-from gpsmerge.io.fit import write_fit
-from gpsmerge.io.gpx import write_gpx
-from gpsmerge.io.tcx import write_tcx
+from gpsmerge.io._registry import _BY_FORMAT
 from gpsmerge.model import Activity
 
-# Maps an output format to the writer that serialises an Activity to a path.
-# ``fit`` is experimental and needs the optional ``fit-tool`` extra; write_fit
-# raises a clear install hint when it is missing, so registering it here is safe
-# even without the extra installed.
+# Output format -> the writer that serialises an Activity to a path, taken from
+# the codec registry. ``fit`` needs the optional ``fit-tool`` extra; its codec
+# loads that lazily on the first write, so registering it here is safe even
+# without the extra installed.
 _WRITERS: dict[str, Callable[[Activity, Path], None]] = {
-    "gpx": write_gpx,
-    "tcx": write_tcx,
-    "fit": write_fit,
+    output_format: codec.write for output_format, codec in _BY_FORMAT.items()
 }
 
 
