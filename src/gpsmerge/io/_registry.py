@@ -1,44 +1,43 @@
-"""The codec registry that read/write dispatch is built on.
+"""The format table that read/write dispatch is built on.
 
-Each supported format contributes one codec (an object with a ``suffix``, an
-``output_format``, and ``read``/``write`` methods). Collecting them here gives a
-single source of truth: :mod:`gpsmerge.io.read` keys on ``suffix``,
-:mod:`gpsmerge.io.write` keys on ``output_format``, and ``READABLE_SUFFIXES`` is
-derived from the registry rather than hand-maintained.
+Each supported format is one :class:`Format` row pairing a file suffix and an
+output-format name with the functions that parse and serialise it. Collecting
+them here gives a single source of truth: :mod:`gpsmerge.io.read` keys on
+``suffix``, :mod:`gpsmerge.io.write` keys on ``output_format``, and
+``READABLE_SUFFIXES`` is derived from the table rather than hand-maintained.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
 
-from gpsmerge.io.fit import FitCodec
-from gpsmerge.io.gpx import GpxCodec
-from gpsmerge.io.tcx import TcxCodec
+from gpsmerge.io.fit import read_fit, write_fit
+from gpsmerge.io.gpx import read_gpx, write_gpx
+from gpsmerge.io.tcx import read_tcx, write_tcx
 from gpsmerge.model import Activity
 
 
-class Codec(Protocol):
-    """A single-format reader/writer the registry dispatches on.
-
-    Structural, not a base class: any object with these four members is a codec.
-    ``suffix`` is the read key (e.g. ``".gpx"``) and ``output_format`` the write
-    key (e.g. ``"gpx"``).
-    """
+@dataclass(frozen=True)
+class Format:
+    """One supported file format: its suffix, output name, and read/write functions."""
 
     suffix: str
     output_format: str
-
-    def read(self, path: Path) -> Activity: ...
-
-    def write(self, activity: Activity, path: Path) -> None: ...
+    read: Callable[[Path], Activity]
+    write: Callable[[Activity, Path], None]
 
 
-# The registered codecs, in a fixed order so READABLE_SUFFIXES stays stable.
-_CODECS: tuple[Codec, ...] = (GpxCodec(), TcxCodec(), FitCodec())
-_BY_SUFFIX: dict[str, Codec] = {codec.suffix: codec for codec in _CODECS}
-_BY_FORMAT: dict[str, Codec] = {codec.output_format: codec for codec in _CODECS}
+# The supported formats, in a fixed order so READABLE_SUFFIXES stays stable.
+_FORMATS: tuple[Format, ...] = (
+    Format(".gpx", "gpx", read_gpx, write_gpx),
+    Format(".tcx", "tcx", read_tcx, write_tcx),
+    Format(".fit", "fit", read_fit, write_fit),
+)
+_BY_SUFFIX: dict[str, Format] = {fmt.suffix: fmt for fmt in _FORMATS}
+_BY_FORMAT: dict[str, Format] = {fmt.output_format: fmt for fmt in _FORMATS}
 
-# The file extensions read() understands, derived from the registry so the
-# wizard's file validation and prompt text share one source of truth.
+# The file extensions read() understands, derived from the table so the wizard's
+# file validation and prompt text share one source of truth.
 READABLE_SUFFIXES: tuple[str, ...] = tuple(_BY_SUFFIX)

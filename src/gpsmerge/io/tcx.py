@@ -108,26 +108,6 @@ _MILLISECONDS_DIGITS = 3
 SOURCE_FORMAT = "tcx"
 
 
-class TcxCodec:
-    """TCX format handler for the read/write registry.
-
-    TCX needs no per-file state, so this groups :func:`read_tcx` and
-    :func:`write_tcx` behind the ``read``/``write`` interface the registry
-    dispatches on.
-    """
-
-    suffix = ".tcx"
-    output_format = "tcx"
-
-    def read(self, path: Path) -> Activity:
-        """Read a TCX file into an :class:`Activity`."""
-        return read_tcx(path)
-
-    def write(self, activity: Activity, path: Path) -> None:
-        """Write ``activity`` to ``path`` as TCX."""
-        write_tcx(activity, path)
-
-
 def read_tcx(path: Path) -> Activity:
     """Parse a TCX file into the canonical :class:`Activity`.
 

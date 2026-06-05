@@ -1,6 +1,6 @@
 """Read any supported file into an :class:`~gpsmerge.model.Activity`.
 
-The codec registry maps a file extension to the codec that parses it, so this
+The format table maps a file extension to the function that parses it, so this
 stays the one place a read is dispatched.
 """
 
@@ -37,14 +37,14 @@ def read(path: Path) -> Activity:
         If the file exists but cannot be read or parsed.
     """
     ext = path.suffix.lower()
-    codec = _BY_SUFFIX.get(ext)
-    if codec is None:
+    fmt = _BY_SUFFIX.get(ext)
+    if fmt is None:
         raise UnsupportedFormat(
             f"cannot read {path.name}: {ext or 'no extension'} is not supported yet"
         )
     # Boundary: turn any IO or parse failure into one typed error the pipeline
     # can report as a parse problem.
     try:
-        return codec.read(path)
+        return fmt.read(path)
     except Exception as exc:
         raise ParseError(f"could not read {path.name}: {exc}") from exc

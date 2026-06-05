@@ -1,7 +1,7 @@
 """Write an :class:`~gpsmerge.model.Activity` to a file in a chosen format.
 
-Dispatch mirrors :mod:`gpsmerge.io.read`: the codec registry maps an output
-format name to the codec that serialises it, and every write goes through
+Dispatch mirrors :mod:`gpsmerge.io.read`: the format table maps an output format
+name to the function that serialises it, and every write goes through
 :func:`_write_atomic` so a failure never leaves a half-written file.
 """
 
@@ -17,11 +17,11 @@ from gpsmerge.io._registry import _BY_FORMAT
 from gpsmerge.model import Activity
 
 # Output format -> the writer that serialises an Activity to a path, taken from
-# the codec registry. ``fit`` needs the optional ``fit-tool`` extra; its codec
-# loads that lazily on the first write, so registering it here is safe even
+# the format table. ``fit`` needs the optional ``fit-tool`` extra; write_fit
+# loads it lazily on the first write, so registering it here is safe even
 # without the extra installed.
 _WRITERS: dict[str, Callable[[Activity, Path], None]] = {
-    output_format: codec.write for output_format, codec in _BY_FORMAT.items()
+    output_format: fmt.write for output_format, fmt in _BY_FORMAT.items()
 }
 
 
