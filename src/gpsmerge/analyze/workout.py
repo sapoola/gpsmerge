@@ -15,11 +15,11 @@ unstructured outdoor riding); see ``docs/workout-detection.md``.
 The channel is chosen automatically, never forced by a flag:
 
 - **power** for rides, when the activity has a *usable* power channel (real
-  effort, judged by magnitude -- a steady block counts, a dead-meter glitch does
+  effort, judged by magnitude: a steady block counts, a dead-meter glitch does
   not);
 - else **speed** for runs, when it has a *usable* speed channel;
-- else a clear :class:`~gpsmerge.errors.WorkoutError` -- there is nothing to
-  detect a workout from.
+- else a clear :class:`~gpsmerge.errors.WorkoutError`, because there is nothing
+  to detect a workout from.
 
 A boundary counts only when the level shifts by at least
 ``delta_min = max(FLOOR, K_AVG * ride_average)``, where ``ride_average`` is the
@@ -315,7 +315,7 @@ class WorkoutDetector:
         the gradual ramp the smoothing leaves at a sharp step is *absorbed* into
         whichever block it is still close to, rather than fragmenting into one
         segment per ramp sample. Only when the cumulative drift reaches
-        ``delta_min`` does a new effort begin -- exactly the "sustained change of
+        ``delta_min`` does a new effort begin, exactly the "sustained change of
         at least delta_min" the design calls for.
 
         Returns the half-open ``(start, end)`` spans, contiguous over the trace.
@@ -381,8 +381,8 @@ class WorkoutDetector:
 
         ``min_seconds`` is the shortest interval worth reporting: a shorter segment
         is folded into whichever neighbour it is closer in mean to. Raising the
-        knob therefore genuinely coarsens the overlay -- it is the one lever a user
-        turns for fewer, longer intervals -- while the default (10 s) still keeps
+        knob therefore genuinely coarsens the overlay (it is the one lever a user
+        turns for fewer, longer intervals), while the default (10 s) still keeps
         short reps: a 20 s sprint survives, a 4 s blip is merged. Walks left to
         right, re-evaluating after each fold so a string of tiny blips collapses
         cleanly.
@@ -422,7 +422,7 @@ class WorkoutDetector:
         """Turn segment spans into :class:`Interval` steps with raw-sample averages.
 
         Each interval's average is the mean of the *raw* (pre-smoothing) samples in
-        its span -- the smoothing was only ever to find the boundaries, so the
+        its span: the smoothing was only ever to find the boundaries, so the
         reported number reflects the real recorded effort. A span whose raw samples
         are all ``NaN`` (a gap) falls back to ``0.0`` rather than producing ``NaN``.
         """
@@ -458,7 +458,7 @@ def _load_numpy() -> Any:
     numpy is an optional extra (``pip install 'gpsmerge[workout]'``); the core
     install does without it. The detector imports it only when actually run, and
     turns a missing import into an actionable :class:`RuntimeError` rather than
-    letting an opaque ``ImportError`` surface -- mirroring how
+    letting an opaque ``ImportError`` surface, mirroring how
     :func:`gpsmerge.io.fit._load_fit_tool` defers fit-tool.
     """
     try:
@@ -477,10 +477,10 @@ def _select_channel(activity: Activity) -> str:
     """Choose the effort channel automatically: power for rides, else speed.
 
     Power wins when the activity carries a usable power trace (a ride); otherwise
-    speed (a run, paced by speed). "Usable" is about *effort*, not variation -- a
+    speed (a run, paced by speed). "Usable" is about *effort*, not variation: a
     steady trainer block is one held effort and still a workout. If neither
     channel is usable, there is nothing to detect, so a
-    :class:`~gpsmerge.errors.WorkoutError` is raised -- there is no flag to force a
+    :class:`~gpsmerge.errors.WorkoutError` is raised. There is no flag to force a
     channel, by design.
     """
     if _channel_usable(activity, "power", FLOOR_POWER):
@@ -499,8 +499,8 @@ def _channel_usable(activity: Activity, channel: str, floor: float) -> bool:
 
     The test is on MAGNITUDE, not variation: the channel's 95th-percentile value
     must clear the per-channel floor. Testing magnitude (rather than ``max - min``
-    spread) is what handles both ends honestly. A steady effort is accepted -- a
-    constant trainer block is one valid lap, not "no data". And a dead channel is
+    spread) is what handles both ends honestly. A steady effort is accepted: a
+    constant trainer block is one valid lap, not "no data". A dead channel is
     rejected even when it glitches: a disconnected power meter reading a flat ``0``
     with a few stray spike frames has a 95th percentile of ``0`` (a single outlier
     cannot move a percentile), so it is skipped and a real speed trace is used
@@ -545,7 +545,7 @@ def _build_grid(
     Returns
     -------
     tuple
-        ``(times, values)`` -- the tz-aware UTC time of each grid point and its
+        ``(times, values)``: the tz-aware UTC time of each grid point and its
         interpolated value (``None`` where there is no nearby data).
     """
     samples = activity.channel_series(channel)

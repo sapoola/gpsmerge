@@ -1,10 +1,10 @@
-"""The interactive guided wizard -- the headline way to use gpsmerge.
+"""The interactive guided wizard: the headline way to use gpsmerge.
 
 Bare ``gpsmerge`` in a terminal lands here. The wizard walks a beginner through
 one merge in plain language: what are you trying to do, which files, what did we
 detect, which channel comes from where, what to call the device, where to write.
 It collects answers into a :class:`~gpsmerge.config.Settings` and hands that to
-:func:`gpsmerge.pipeline.run`, exactly as the ``run`` command does -- the two
+:func:`gpsmerge.pipeline.run`, exactly as the ``run`` command does. The two
 paths share the same engine and the same exit codes.
 
 Unhappy paths are handled rather than crashing: a missing file is re-prompted, a
@@ -88,17 +88,17 @@ class Wizard:
         )
 
         try:
-            self._section("Step 1 — what are we doing?", "🧭")
+            self._section("Step 1: what are we doing?", "🧭")
             mode = self._ask_intent()
 
-            self._section("Step 2 — your files", "📁")
+            self._section("Step 2: your files", "📁")
             paths = self._ask_files()
             activities = [read(path) for path in paths]
 
-            self._section("Step 3 — what I found", "🔍")
+            self._section("Step 3: what I found", "🔍")
             mode = self._confirm_mode(activities, mode)
 
-            self._section("Step 4 — where each channel comes from", "🎚️")
+            self._section("Step 4: where each channel comes from", "🎚️")
             channel_sources = (
                 self._ask_stack_sources(paths, activities) if mode == "stack" else {}
             )
@@ -108,7 +108,7 @@ class Wizard:
             )
             device_from = self._ask_device(paths, activities)
 
-            self._section("Step 5 — output options", "⚙️")
+            self._section("Step 5: output options", "⚙️")
             output_format = self._ask_output_format()
             timezone = self._ask_timezone()
             sport = self._ask_sport()
@@ -121,12 +121,12 @@ class Wizard:
             output, assume_yes = self._ask_output_path(paths, output_format)
         except _Cancelled:
             self._console.print(
-                "\n[yellow]No problem — stopped here. Nothing was written.[/yellow]"
+                "\n[yellow]No problem, stopped here. Nothing was written.[/yellow]"
             )
             return EXIT_USAGE
 
         # Built via model_validate so pydantic checks the literal fields (mode,
-        # format, gap policy) -- the same construction path the 'run' command uses.
+        # format, gap policy): the same construction path the 'run' command uses.
         settings = Settings.model_validate(
             {
                 "inputs": paths,
@@ -161,7 +161,7 @@ class Wizard:
         Parameters
         ----------
         label : str
-            A short heading like ``"Step 2 — your files"``.
+            A short heading like ``"Step 2: your files"``.
         symbol : str
             A small emoji or symbol shown before the label, for warmth.
         """
@@ -182,14 +182,14 @@ class Wizard:
                 "First up: what are you trying to do?",
                 choices=[
                     questionary.Choice(
-                        "Append -- my ride was split across two recordings",
+                        "Append: my ride was split across two recordings",
                         value="append",
                     ),
                     questionary.Choice(
-                        "Stack -- two devices recorded the SAME ride", value="stack"
+                        "Stack: two devices recorded the SAME ride", value="stack"
                     ),
                     questionary.Choice(
-                        "Not sure -- take a look at my files and decide for me",
+                        "Not sure: take a look at my files and decide for me",
                         value="auto",
                     ),
                 ],
@@ -294,7 +294,7 @@ class Wizard:
                 f"{detected}. How would you like to play it?",
                 choices=[
                     questionary.Choice(
-                        f"Use {detected} (recommended -- it matches your files)",
+                        f"Use {detected} (recommended, it matches your files)",
                         value=detected,
                     ),
                     questionary.Choice(
@@ -313,10 +313,10 @@ class Wizard:
                 message,
                 choices=[
                     questionary.Choice(
-                        "Append -- one recording after another", value="append"
+                        "Append: one recording after another", value="append"
                     ),
                     questionary.Choice(
-                        "Stack -- the same ride from two devices", value="stack"
+                        "Stack: the same ride from two devices", value="stack"
                     ),
                 ],
             )
@@ -334,7 +334,7 @@ class Wizard:
             table.add_row(_file_label(activity), span[0], span[1])
         self._console.print(table)
         if detected == "ambiguous":
-            self._console.print("My read: [bold]not certain — I'll ask you next[/bold]")
+            self._console.print("My read: [bold]not certain, I'll ask you next[/bold]")
         else:
             self._console.print(f"My read: this is an [bold]{detected}[/bold]")
 
@@ -454,11 +454,11 @@ class Wizard:
                 "There's often a gap between two recordings. How should I handle it?",
                 choices=[
                     questionary.Choice(
-                        "Pause -- keep the real clock (the gap shows as stopped time)",
+                        "Pause: keep the real clock (the gap shows as stopped time)",
                         value="pause",
                     ),
                     questionary.Choice(
-                        "Shift -- slide the second ride to start right after the first",
+                        "Shift: slide the second ride to start right after the first",
                         value="shift",
                     ),
                 ],
@@ -509,13 +509,11 @@ class Wizard:
                     "What format should the merged file be?",
                     choices=[
                         questionary.Choice(
-                            "GPX -- works everywhere (recommended)", value="gpx"
+                            "GPX: works everywhere (recommended)", value="gpx"
                         ),
+                        questionary.Choice("TCX: no temperature channel", value="tcx"),
                         questionary.Choice(
-                            "TCX -- no temperature channel", value="tcx"
-                        ),
-                        questionary.Choice(
-                            "FIT -- binary, like your device (experimental)",
+                            "FIT: binary, like your device (experimental)",
                             value="fit",
                         ),
                     ],
@@ -525,7 +523,7 @@ class Wizard:
         )
         if answer == "fit":
             self._console.print(
-                "[yellow]Heads up: FIT writing is experimental and best-effort -- "
+                "[yellow]Heads up: FIT writing is experimental and best-effort, "
                 "check the file imports before relying on it.[/yellow]"
             )
         return answer
@@ -597,7 +595,7 @@ class Wizard:
         """Offer BETA workout detection when an effort channel is present to analyse.
 
         The offer only appears when some input carries a power channel (rides) or a
-        speed channel (runs) -- otherwise there is nothing to detect and the
+        speed channel (runs). Otherwise there is nothing to detect and the
         question would only confuse. Presence (not per-file variation) is the gate,
         because a workout's variation often spans the merge, not a single input; the
         detector decides whether the merged channel actually varies, and the
@@ -620,7 +618,7 @@ class Wizard:
             _ask(
                 questionary.confirm(
                     "Detect a structured interval workout from the power/speed and "
-                    "write it as laps? (BETA -- best for trainer/interval sessions)",
+                    "write it as laps? (BETA, best for trainer/interval sessions)",
                     default=False,
                 )
             )
@@ -628,7 +626,7 @@ class Wizard:
         if detect:
             self._console.print(
                 "[yellow]Heads up: workout detection is BETA and a best-effort "
-                "heuristic -- it shines on structured intervals and is rougher on "
+                "heuristic. It shines on structured intervals and is rougher on "
                 "smooth ramps and unstructured rides. Check the laps after.[/yellow]"
             )
         return detect
@@ -663,7 +661,7 @@ class Wizard:
         Returns
         -------
         tuple
-            ``(output_path, assume_yes)`` -- ``assume_yes`` is ``True`` when the
+            ``(output_path, assume_yes)``. ``assume_yes`` is ``True`` when the
             user confirmed an overwrite, so the pipeline does not block on it.
 
         Raises
@@ -719,7 +717,7 @@ class Wizard:
             ``0`` on success or a declined write; the pipeline's exit code
             otherwise.
         """
-        self._section("Step 6 — your preview", "👀")
+        self._section("Step 6: your preview", "👀")
         preview_result = run_pipeline(settings)
         if preview_result.issues:
             self._report_issues(preview_result)
@@ -732,7 +730,7 @@ class Wizard:
         )
         if not write_it:
             self._console.print(
-                "[yellow]No file written — your originals are untouched. "
+                "[yellow]No file written, your originals are untouched. "
                 "Run gpsmerge again whenever you like.[/yellow]"
             )
             return 0
@@ -891,9 +889,9 @@ def _files_prompt(count: int) -> str:
 def _file_problem(path: Path) -> str | None:
     """Return why a path is not a usable input, or ``None`` if it is fine."""
     if not path.exists():
-        return f"I can't find {path} — check the path and try again."
+        return f"I can't find {path}, check the path and try again."
     if not path.is_file():
-        return f"{path} is a folder, not a file — point me at the file itself."
+        return f"{path} is a folder, not a file. Point me at the file itself."
     if path.suffix.lower() not in READABLE_SUFFIXES:
         supported = ", ".join(READABLE_SUFFIXES)
         return f"{path.name} isn't a format I can read (I take {supported})."

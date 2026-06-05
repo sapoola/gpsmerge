@@ -194,7 +194,7 @@ def _apply_transforms(
 
     The order matters: trim first (it re-bases distance and shrinks the track),
     then shift the clock, then split long gaps into pauses, then smooth
-    elevation, then re-lap by distance, and finally detect a workout -- the
+    elevation, then re-lap by distance, and finally detect a workout. The
     workout detector runs last so it sees the final cropped, re-based, re-timed
     data, and (like auto-lap) replaces the laps. Validation has already checked
     every spec parses and that ``--auto-lap`` and ``--detect-workout`` are not
@@ -212,7 +212,7 @@ def _apply_transforms(
     Returns
     -------
     tuple
-        ``(activity, workout_summary)`` -- the adjusted activity, and the
+        ``(activity, workout_summary)``: the adjusted activity, and the
         detected workout's summary line when ``--detect-workout`` ran (else
         ``None``).
 
@@ -296,7 +296,7 @@ def _local_span(
     """Convert a UTC span into the chosen timezone, for display only.
 
     Returns ``(None, None)`` when no timezone is given, when there are no times,
-    or when the spec does not resolve -- validation surfaces a bad spec as an
+    or when the spec does not resolve. Validation surfaces a bad spec as an
     error, so here it simply yields no local times rather than raising.
     """
     if timezone is None or start is None or end is None:
@@ -364,7 +364,7 @@ def _channels(points: list[TrackPoint]) -> list[str]:
 
 
 def _warnings(points: list[TrackPoint]) -> list[str]:
-    """Return sanity warnings -- currently large unexplained position jumps."""
+    """Return sanity warnings: currently large unexplained position jumps."""
     warnings: list[str] = []
     for earlier, later in zip(points, points[1:]):
         if earlier.lat is None or earlier.lon is None:
@@ -375,7 +375,7 @@ def _warnings(points: list[TrackPoint]) -> list[str]:
         if jump >= SEAM_JUMP_WARN_M:
             where = later.time.isoformat() if later.time else "an unknown time"
             warnings.append(
-                f"position jumps {jump / 1000:.1f} km at {where} -- looks like a "
+                f"position jumps {jump / 1000:.1f} km at {where}, looks like a "
                 f"gap; pass --ignore-gaps-over-meters to keep it out of the distance"
             )
     return warnings

@@ -53,7 +53,7 @@ class WriteError(GpsmergeError):
     """Raised when an activity cannot be serialised to the requested format.
 
     The merge itself succeeded, but the chosen output format cannot represent
-    some value -- for example a sensor reading outside the range FIT can store.
+    some value, for example a sensor reading outside the range FIT can store.
     Belongs to the :data:`EXIT_WRITE` category.
     """
 
@@ -62,7 +62,7 @@ class TransformError(GpsmergeError):
     """Raised when a post-merge transform cannot be applied to an activity.
 
     The merge succeeded, but the requested adjustment makes no sense for this
-    data -- for example asking to re-lap by distance an activity that recorded
+    data, for example asking to re-lap by distance an activity that recorded
     neither a distance channel nor any positions to measure one from.
     Validation surfaces such a case as an :class:`Issue` up front, so this is a
     last-line guard for a direct caller rather than something a normal run hits.
@@ -73,8 +73,8 @@ class WorkoutError(GpsmergeError):
     """Raised when ``--detect-workout`` has no usable effort channel to work from.
 
     The workout detector needs a varying power channel (rides) or a varying
-    speed channel (runs) to find intervals in. An activity with neither -- or
-    one where the chosen channel has too little signal to trust -- cannot yield
+    speed channel (runs) to find intervals in. An activity with neither (or
+    one where the chosen channel has too little signal to trust) cannot yield
     a workout, so this is raised with a clear, actionable message. The pipeline
     maps it to :data:`EXIT_NO_WORKOUT_DATA`.
     """

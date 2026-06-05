@@ -1,6 +1,6 @@
 # Security policy
 
-gpsmerge runs entirely on your own machine — it has no network, no account, and no server component. The main security surface is therefore the **file parsing**: gpsmerge reads GPX and TCX (XML) and FIT (binary) files that may come from third parties (a friend's ride export, a download, a tool you don't control). Treat every input file as untrusted.
+gpsmerge runs entirely on your own machine: it has no network, no account, and no server component. The main security surface is therefore the **file parsing**: gpsmerge reads GPX and TCX (XML) and FIT (binary) files that may come from third parties (a friend's ride export, a download, a tool you don't control). Treat every input file as untrusted.
 
 ## Reporting a vulnerability
 

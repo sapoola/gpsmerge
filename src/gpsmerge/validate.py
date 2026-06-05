@@ -85,7 +85,7 @@ def _check_gpx_needs_position(
         Issue(
             EXIT_USAGE,
             "these recordings have no GPS position, and GPX cannot store a "
-            "position-less activity (or its distance) -- write TCX instead with "
+            "position-less activity (or its distance); write TCX instead with "
             "--format tcx",
         )
     ]

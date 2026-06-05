@@ -2,19 +2,19 @@
 
 A merge produces one :class:`~gpsmerge.model.Activity`; these transforms tidy it
 up afterwards. Each is a plain function that takes an activity and returns a new
-one, never mutating the input -- it builds fresh :class:`Segment` and
+one, never mutating the input: it builds fresh :class:`Segment` and
 :class:`TrackPoint` objects with :func:`dataclasses.replace`, as the merge does.
 
 The adjustments and what each fixes:
 
-- :func:`shift_time` -- the device clock was wrong, so every timestamp is off by a
+- :func:`shift_time`: the device clock was wrong, so every timestamp is off by a
   constant amount.
-- :func:`trim` -- a warm-up or cool-down should be cut from the ends.
-- :func:`smooth_elevation` -- a barometric altimeter is noisy and the elevation
+- :func:`trim`: a warm-up or cool-down should be cut from the ends.
+- :func:`smooth_elevation`: a barometric altimeter is noisy and the elevation
   spikes need flattening.
-- :func:`insert_stopped_time` -- a long non-moving gap should count as a pause
+- :func:`insert_stopped_time`: a long non-moving gap should count as a pause
   (stopped time), not as moving time.
-- :func:`auto_lap` -- re-lap into even distance splits (every 1 km, say) rather
+- :func:`auto_lap`: re-lap into even distance splits (every 1 km, say) rather
   than whatever the source recorded; it builds the lap overlay through the shared
   :func:`laps_from_boundaries` helper.
 """
@@ -90,7 +90,7 @@ def trim(activity: Activity, start: datetime | None, end: datetime | None) -> Ac
     After trimming, cumulative distance is re-based so it starts at zero again:
     where the kept points carry a distance, the first kept point's distance is
     subtracted from every point's distance (points with no distance are left
-    ``None``). This keeps the written distance honest -- a trimmed track should read
+    ``None``). This keeps the written distance honest: a trimmed track should read
     "0 km at the start", not inherit the offset of the points that were cut.
 
     Laps follow the same window: a lap that overlaps ``[start, end]`` is kept but
@@ -273,7 +273,7 @@ def insert_stopped_time(activity: Activity, threshold_s: float) -> Activity:
     """Return a copy that splits each segment at every long time gap between points.
 
     Wherever two consecutive points within a segment are more than ``threshold_s``
-    seconds apart, the gap becomes a new segment boundary -- a pause. The points
+    seconds apart, the gap becomes a new segment boundary, a pause. The points
     themselves are unchanged; only the grouping into segments changes. Because the
     preview measures moving time within segments and excludes the gaps between
     them, a long non-moving gap then counts as stopped time rather than moving
@@ -328,7 +328,7 @@ def auto_lap(activity: Activity, interval_m: float) -> Activity:
     time the running distance crosses the next multiple of ``interval_m``, the
     current lap closes at that point's time and the next opens, so the laps fall
     on the kilometre (or mile) marks rather than wherever the source recorded
-    them. This *replaces* any existing laps -- it is a re-lap, not an addition.
+    them. This *replaces* any existing laps: it is a re-lap, not an addition.
 
     Distance comes from each point's recorded ``distance`` when the channel is
     present and non-decreasing; otherwise it is recomputed from the positions
@@ -396,9 +396,9 @@ def laps_from_boundaries(
 
     Every lap that closes on a real boundary carries ``trigger``. The trailing
     run-to-end lap is the leftover past the last whole interval, so it is tagged
-    ``"session_end"`` (the device closes it on stop) -- unless the last boundary
-    already lands exactly on ``activity_end``, in which case there is no leftover
-    and no trailing lap is added.
+    ``"session_end"`` (the device closes it on stop). The exception is when the
+    last boundary already lands exactly on ``activity_end``, in which case there
+    is no leftover and no trailing lap is added.
 
     This is the shared "boundaries -> laps" plumbing: :func:`auto_lap` feeds it
     the distance-crossing times, and the workout detector (a later phase) feeds
@@ -444,7 +444,7 @@ def _lap_distances(points: list[TrackPoint]) -> list[float] | None:
     Prefers the recorded ``distance`` channel when every point carries it and the
     values never go backwards (a clean, trustworthy record). Otherwise falls back
     to a haversine recompute from the positions. Returns ``None`` only when there
-    is neither a usable recorded distance nor any position to measure from -- the
+    is neither a usable recorded distance nor any position to measure from, the
     case validation rejects up front.
     """
     recorded = [p.distance for p in points]

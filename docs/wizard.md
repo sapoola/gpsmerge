@@ -1,6 +1,6 @@
 # The guided wizard
 
-The wizard is the easiest way to merge files with gpsmerge. You do not need to know any flags or modes -- it asks plain questions, shows you what it found, and only writes a file once you say yes. Run it by typing the bare command in a terminal:
+The wizard is the easiest way to merge files with gpsmerge. You do not need to know any flags or modes: it asks plain questions, shows you what it found, and only writes a file once you say yes. Run it by typing the bare command in a terminal:
 
 ```
 gpsmerge
@@ -8,7 +8,7 @@ gpsmerge
 
 It opens with the gpsmerge banner and a one-line intro, then walks you through the merge in numbered steps. Each major phase (your files, what gpsmerge detected, the channel choices, output options, and the final preview) is introduced by a labelled section rule, so you always know where you are. The wording throughout is plain and friendly, and you can press **Ctrl-C** at any prompt to stop without writing anything.
 
-If you pipe input or run in CI (no terminal attached), gpsmerge does not start the wizard -- it prints a short hint and exits, so an automated run never hangs waiting for an answer. The banner only ever appears in the interactive wizard, never in that non-interactive hint. For scripts, use `gpsmerge run` with flags instead (see `gpsmerge examples`).
+If you pipe input or run in CI (no terminal attached), gpsmerge does not start the wizard: it prints a short hint and exits, so an automated run never hangs waiting for an answer. The banner only ever appears in the interactive wizard, never in that non-interactive hint. For scripts, use `gpsmerge run` with flags instead (see `gpsmerge examples`).
 
 ## A walkthrough
 
@@ -18,9 +18,9 @@ Say your bike computer died halfway through a ride and you finished the recordin
 
 ```
 ? What do you want to do?
- » Append -- my ride was split across two recordings
-   Stack -- two devices recorded the SAME ride
-   Not sure -- look at my files
+ » Append: my ride was split across two recordings
+   Stack: two devices recorded the SAME ride
+   Not sure: look at my files
 ```
 
 Pick **Append**. If you are not sure, choose the last option and gpsmerge works it out from the timestamps.
@@ -56,11 +56,11 @@ Type a path (Tab completes file names) and press Enter. The running list grows a
 Looks like: append
 ```
 
-gpsmerge shows each file's time span and what it thinks you want. Because the two recordings do not overlap, it agrees this is an append and moves on. If your choice had *contradicted* the data -- say you picked Stack but the files are clearly sequential -- the wizard would not crash. It offers you the recommended switch:
+gpsmerge shows each file's time span and what it thinks you want. Because the two recordings do not overlap, it agrees this is an append and moves on. If your choice had *contradicted* the data (say you picked Stack but the files are clearly sequential) the wizard would not crash. It offers you the recommended switch:
 
 ```
 ? You chose stack, but the files look like an append. Which should I use?
- » Use append (recommended -- matches the data)
+ » Use append (recommended, matches the data)
    Keep stack (I know what I'm doing)
 ```
 
@@ -68,8 +68,8 @@ gpsmerge shows each file's time span and what it thinks you want. Because the tw
 
 ```
 ? There may be a gap between the recordings. How should I treat it?
- » Pause -- keep the real times (gap shows as stopped)
-   Shift -- move the later ride to start right after the first
+ » Pause: keep the real times (gap shows as stopped)
+   Shift: move the later ride to start right after the first
 ? Keep big position jumps out of the distance total?  (y/N)
 ```
 
@@ -97,7 +97,7 @@ The merged file is attributed to one device's identity. Pick whichever you want 
 ? Apply standard clean-up (drop seam duplicates, recompute distance)?  (Y/n)
 ```
 
-GPX is the safe default and is read by every tool. TCX is also supported, but it cannot carry a temperature channel. Leave the sport blank to keep whatever the source files say. The clean-up step removes the duplicated point some devices write where two recordings meet, and recomputes the distance from the positions -- leave it on unless you have a reason not to.
+GPX is the safe default and is read by every tool. TCX is also supported, but it cannot carry a temperature channel. Leave the sport blank to keep whatever the source files say. The clean-up step removes the duplicated point some devices write where two recordings meet, and recomputes the distance from the positions; leave it on unless you have a reason not to.
 
 ### 7. Where to write
 
@@ -128,7 +128,7 @@ The default is `merged.<format>` next to your input files. If the file already e
 ? Write it?  (Y/n)
 ```
 
-Nothing is written until you confirm. Review the points, time, distance, channels, device, and any warnings. Answer **yes** and gpsmerge writes the file, then shows a green success panel summarising what it made -- where it was saved, the point count, distance, moving and elapsed time, channels, and device:
+Nothing is written until you confirm. Review the points, time, distance, channels, device, and any warnings. Answer **yes** and gpsmerge writes the file, then shows a green success panel summarising what it made: where it was saved, the point count, distance, moving and elapsed time, channels, and device:
 
 ```
 ╭──── ✓ Done! Your merged file is ready ────╮
@@ -141,11 +141,11 @@ Nothing is written until you confirm. Review the points, time, distance, channel
 ╰───────────────────────────────────────────╯
 ```
 
-Answer **no** and gpsmerge exits cleanly with nothing written -- your originals are untouched.
+Answer **no** and gpsmerge exits cleanly with nothing written; your originals are untouched.
 
 ### 9. Save these settings (optional)
 
-After a successful write, the wizard offers to remember the merge's general settings (mode, format, timezone, clean-up, and so on -- not the specific files) under a name:
+After a successful write, the wizard offers to remember the merge's general settings (mode, format, timezone, clean-up, and so on, not the specific files) under a name:
 
 ```
 ? Want to reuse these settings? Give them a profile name, or Enter to skip
@@ -155,8 +155,8 @@ Type a name and next time you can skip the questions entirely with `gpsmerge run
 
 ## Stopping early
 
-Press **Ctrl-C** at any prompt to stop. The wizard exits without writing a file and tells you so -- you never see a stack trace.
+Press **Ctrl-C** at any prompt to stop. The wizard exits without writing a file and tells you so; you never see a stack trace.
 
 ## When something is wrong
 
-If the merge cannot proceed -- for example a file has no timestamps, or the chosen output directory is not writable -- the wizard prints the problem in plain language and exits with the same status code the `gpsmerge run` command would use, so the behaviour is consistent however you run the tool.
+If the merge cannot proceed (for example a file has no timestamps, or the chosen output directory is not writable) the wizard prints the problem in plain language and exits with the same status code the `gpsmerge run` command would use, so the behaviour is consistent however you run the tool.

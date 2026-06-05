@@ -31,14 +31,14 @@ poetry run pytest
 
 ## The simplicity rule
 
-The most important rule in this codebase: **write the boring, obvious version**. Code is read far more often than it is written, and the next person to touch it may be junior. Reach for an abstraction — a base class, a registry, a config flag — only when real, present duplication or change-pressure justifies it, never "in case it's needed later". You can always extract an abstraction from working code; you can rarely simplify a speculative one.
+The most important rule in this codebase: **write the boring, obvious version**. Code is read far more often than it is written, and the next person to touch it may be junior. Reach for an abstraction (a base class, a registry, a config flag) only when real, present duplication or change-pressure justifies it, never "in case it's needed later". You can always extract an abstraction from working code; you can rarely simplify a speculative one.
 
 Concretely:
 
 - Functions do one thing and are named for what they do.
 - Every public function has a docstring describing its contract.
 - Comments explain *why*, never *what*.
-- No magic numbers — name your constants.
+- No magic numbers: name your constants.
 - Tests come first, then the least code that makes them pass.
 
 ## Adding a new file format
@@ -49,4 +49,4 @@ Formats are plain functions, not a plugin system. To add one (say, KML):
 2. Add one branch to the `if/elif` in `read.py` / `write.py`.
 3. Add round-trip tests in `tests/`.
 
-That is the whole process — there is no registry to update and no base class to subclass.
+That is the whole process: there is no registry to update and no base class to subclass.

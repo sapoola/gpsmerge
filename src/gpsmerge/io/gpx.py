@@ -29,9 +29,9 @@ from lxml import etree
 from gpsmerge.model import Activity, Device, Segment, TrackPoint
 
 # Garmin extension namespaces, written exactly as Strava/Garmin produce them.
-# These are XML *namespace identifiers*, not URLs to fetch -- a browser 404 on
-# them is expected. They must match these exact strings or HR/power round-trips
-# break. test_namespaces.py pins them.
+# These are XML *namespace identifiers*, not URLs to fetch: a browser 404 on them
+# is expected. They must match these exact strings or HR/power round-trips break.
+# test_namespaces.py pins them.
 TRACKPOINT_EXTENSION_NS = "http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
 POWER_EXTENSION_NS = "http://www.garmin.com/xmlschemas/PowerExtension/v1"
 
@@ -186,16 +186,18 @@ def write_gpx(activity: Activity, path: Path) -> None:
     Emits one ``<trk>`` with one ``<trkseg>`` per segment. Fitness channels are
     attached under the Garmin TrackPointExtension (hr/cad/atemp) and
     PowerExtension (PowerInWatts) namespaces, and only for channels that are
-    not ``None`` -- a missing channel is omitted, never written as ``0``.
+    not ``None``: a missing channel is omitted, never written as ``0``.
 
     Three kinds of data cannot survive a GPX round-trip and are intentionally not
-    written: the structured :class:`Device` identity (manufacturer, product,
-    serial number, software version) -- GPX has only a single ``creator`` string,
-    so only ``device.name`` is kept; per-point ``distance`` -- GPX has no
-    trackpoint distance element, so distance is recomputed from positions via
-    :func:`gpsmerge.util.geo.cumulative_distance` when needed rather than stored; and
-    per-point ``speed`` -- GPX 1.1, which we emit because it is the version that
-    carries the Garmin fitness extensions, has no trackpoint speed element.
+    written. The structured :class:`Device` identity (manufacturer, product,
+    serial number, software version) is reduced because GPX has only a single
+    ``creator`` string, so only ``device.name`` is kept. Per-point ``distance`` is
+    dropped because GPX has no trackpoint distance element, so distance is
+    recomputed from positions via
+    :func:`gpsmerge.util.geo.cumulative_distance` when needed rather than stored.
+    Per-point ``speed`` is dropped because GPX 1.1, which we emit because it is the
+    version that carries the Garmin fitness extensions, has no trackpoint speed
+    element.
     (``read_gpx`` still reads ``speed`` from older GPX 1.0 files that include it.)
 
     Parameters

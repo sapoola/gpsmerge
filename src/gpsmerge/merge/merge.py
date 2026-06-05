@@ -38,7 +38,7 @@ _FAR_FUTURE = datetime.max.replace(tzinfo=UTC)
 
 # Channels that stacking borrows from a chosen source onto the master track.
 # Time, position, and elevation always come from the master (position is never
-# interpolated), and distance is recomputed from positions -- so none are here.
+# interpolated), and distance is recomputed from positions, so none are here.
 SCALAR_DONOR_CHANNELS = ("hr", "cad", "power", "temp", "speed")
 
 # Channels recorded as whole numbers: an interpolated value is rounded back.
@@ -82,7 +82,7 @@ def append(activities: list[Activity], settings: Settings) -> Activity:
     -------
     Activity
         One activity carrying every input's points in time order. Every defaulted
-        field -- device, sport, name, and creation time -- is taken from the same
+        field (device, sport, name, and creation time) is taken from the same
         input, the chronologically first activity, so attribution is consistent
         regardless of the order the inputs are passed. ``device_from`` and
         ``sport`` override their respective defaults.
@@ -226,8 +226,8 @@ def _assign_distance(points: list[TrackPoint], ignore_big_gaps_m: float | None) 
     """Set each point's cumulative distance from positions, skipping big jumps.
 
     Distance runs continuously across segment boundaries (a pause does not lose
-    the distance already covered). A step longer than ``ignore_big_gaps_m`` -- a
-    coffee-stop gap or a GPS glitch -- is not added to the total, so it cannot
+    the distance already covered). A step longer than ``ignore_big_gaps_m`` (a
+    coffee-stop gap or a GPS glitch) is not added to the total, so it cannot
     inflate the distance, though the measurement resumes from the new position.
     """
     # Indoor rides carry no position, so there is nothing to measure from: leave
@@ -252,7 +252,7 @@ def _chosen_device(ordered: list[Activity], settings: Settings) -> Device:
     """Return a copy of the device an appended file should be attributed to.
 
     The user picks it with ``device_from``; by default it is the chronologically
-    first activity (``ordered[0]``) -- the same input that supplies the defaulted
+    first activity (``ordered[0]``), the same input that supplies the defaulted
     sport, name, and creation time, so every defaulted field is attributed to one
     consistent input. The returned :class:`Device` is a copy so the merged
     activity never shares state with an input.
@@ -277,7 +277,7 @@ def stack(activities: list[Activity], settings: Settings) -> Activity:
     """Overlay recordings of the same ride, taking a different sensor from each.
 
     One input is the *master*: it provides the timeline, position, and elevation,
-    copied verbatim -- position is never interpolated or invented. Each sensor
+    copied verbatim (position is never interpolated or invented). Each sensor
     channel (heart rate, cadence, power, temperature, speed) is taken from its
     chosen source and resampled onto the master's timestamps. Where a source has a
     gap longer than ``max_gap_s`` the channel is left blank rather than guessed,
@@ -328,7 +328,7 @@ def stack(activities: list[Activity], settings: Settings) -> Activity:
         segments=segments,
         # The master supplies the timeline, so its laps apply to the result
         # unchanged; copy them so the input is not shared. Donors contribute no
-        # laps -- only borrowed sensor channels.
+        # laps, only borrowed sensor channels.
         laps=[replace(lap) for lap in master.laps],
         time_created=master.time_created,
     )
@@ -341,7 +341,7 @@ def _align_donors(
 
     The master always maps to itself: its timeline is the reference and is never
     moved. With ``clock_align`` off every donor also maps to itself, so stacking
-    reads the donors exactly as recorded -- behaviour identical to before. With it
+    reads the donors exactly as recorded (behaviour identical to before). With it
     on, each donor's clock offset relative to the master is detected and, when
     non-zero, the donor maps to a time-shifted *copy* (the inputs are never
     mutated) so its readings land on the master's clock before being borrowed.
@@ -380,7 +380,7 @@ def _master(activities: list[Activity], settings: Settings) -> Activity:
 
     The user picks it with ``position_from``; by default it is the input with the
     most points carrying a position (the best GPS track). When no input has any
-    position -- an indoor ride recorded on two sensors -- that count ties at zero,
+    position (an indoor ride recorded on two sensors) that count ties at zero,
     so we fall back to the input with the most points, which carries the richer
     timeline (and, typically, the recorded distance worth keeping).
     """
@@ -431,7 +431,7 @@ def _fill_channels(
     """Resample every donor channel onto ``points`` in place, one owner at a time.
 
     For each channel the master target times are gathered once, then each owner is
-    interpolated over the whole array with a single :func:`lerp` call -- rather than
+    interpolated over the whole array with a single :func:`lerp` call, rather than
     one call per point per owner, which made stacking O(n^2). Owners combine by the
     first-non-None-wins rule (a later owner fills only the gaps the earlier ones
     leave), matching the per-point fallback this replaced. Points without a time
@@ -461,7 +461,7 @@ def _combine_owners(
     Each owner is resampled with one :func:`lerp` call across the whole timeline.
     The first owner supplies the baseline; each later owner fills only the targets
     the running result still leaves ``None``, so an earlier source always takes
-    precedence -- the same ordering the per-point loop gave.
+    precedence, the same ordering the per-point loop gave.
     """
     combined: list[float | None] = [None] * len(target_times)
     for series in owner_series:

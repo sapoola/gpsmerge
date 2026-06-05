@@ -1,11 +1,11 @@
 """Read FIT (Garmin/ANT binary) activity files via fitdecode.
 
 FIT is the compact binary format head units actually record to. fitdecode does
-the heavy lifting -- it parses the typed message stream and decodes each field
-for us: timestamps come back as timezone-aware UTC datetimes, manufacturer and
+the heavy lifting: it parses the typed message stream and decodes each field
+for us, so timestamps come back as timezone-aware UTC datetimes, manufacturer and
 product come back as readable names, and scaled sensor channels (altitude in
 metres, speed in m/s) arrive already in their real units. Position is the
-exception -- it is semicircles and we convert it (see below). This module is the
+exception: it is semicircles and we convert it (see below). This module is the
 small glue that maps those decoded messages onto the canonical :class:`Activity`.
 
 Two FIT specifics are handled here rather than left to the model:
@@ -68,7 +68,7 @@ _CANONICAL_SPORTS = frozenset({"cycling", "running", "swimming", "walking", "hik
 
 # Our canonical sports, paired with the FIT ``Sport`` enum *member name* to write
 # them as. (We name the member rather than import the enum at module top, so the
-# read path keeps working with only fitdecode -- fit-tool is an optional, lazily
+# read path keeps working with only fitdecode; fit-tool is an optional, lazily
 # imported dependency.) A sport not in this map has no FIT enum we trust, so we
 # omit the sport message rather than guess; it reads back as ``None``.
 _SPORT_TO_FIT = {
@@ -80,7 +80,7 @@ _SPORT_TO_FIT = {
 }
 
 # Our canonical lap triggers, paired with the FIT ``LapTrigger`` enum member name
-# to write them as. A trigger we cannot name falls back to ``MANUAL`` -- the FIT
+# to write them as. A trigger we cannot name falls back to ``MANUAL``, the FIT
 # safe default, mirroring how the TCX writer falls back to ``Manual``.
 _TRIGGER_TO_FIT = {
     "manual": "MANUAL",
@@ -265,8 +265,8 @@ def _device_name(manufacturer: str | None, product: str | None) -> str | None:
     FIT gives enum-style strings like ``"stages_cycling"`` and (for mapped
     products) ``"edge_530"``, which we tidy to ``"Stages Cycling"`` and
     ``"Edge 530"``. An unmapped product comes back as a bare number (e.g. ``"1"``)
-    that means nothing to a person, so it is dropped rather than appended -- the
-    raw value is still kept in :attr:`Device.product`.
+    that means nothing to a person, so it is dropped rather than appended (the
+    raw value is still kept in :attr:`Device.product`).
     """
     maker = _prettify(manufacturer)
     model = _prettify(product) if product and not product.isdigit() else None
@@ -339,7 +339,7 @@ def _get(frame: _Decoded, field: str) -> Any:
     """Return a decoded field's value, or ``None`` when the record lacks it.
 
     fitdecode raises if you ask for a field a message does not carry, so this
-    wraps ``get_value`` with a ``None`` fallback -- making an absent channel read
+    wraps ``get_value`` with a ``None`` fallback, making an absent channel read
     as ``None`` rather than an error. The typed ``_get_int``/``_get_float``/
     ``_get_str`` wrappers are what callers use; this stays the single place that
     touches the raw ``Any``.
@@ -409,7 +409,7 @@ def write_fit(activity: Activity, path: Path) -> None:
     **Experimental.** FIT writing is the newest output and the binary format is
     unforgiving; the result is round-trip tested (see ``test_fit_write.py``) but
     has not been proven against every device's importer. The reader is the mature
-    path -- treat a written FIT file as best-effort.
+    path, so treat a written FIT file as best-effort.
 
     The message stream mirrors what :func:`read_fit` expects, so a written file
     reads back faithfully: a ``file_id`` (device attribution), an optional
@@ -422,7 +422,7 @@ def write_fit(activity: Activity, path: Path) -> None:
 
     A channel that is ``None`` is simply not set on the message, so fit-tool
     writes the FIT *invalid* sentinel and :func:`read_fit` maps it back to
-    ``None`` -- an absent channel never serialises as ``0``. Position is set in
+    ``None``, so an absent channel never serialises as ``0``. Position is set in
     degrees (fit-tool encodes the semicircles itself).
 
     Known FIT-write losses, all documented and tested:
@@ -432,7 +432,7 @@ def write_fit(activity: Activity, path: Path) -> None:
       TCX temperature are documented losses).
     - **Temperature is rounded to whole degrees.** FIT stores temperature as a
       signed byte at 1 degC resolution, so ``21.5`` degC reads back as ``21``.
-      (Altitude and speed quantise too -- to 0.2 m and 0.001 m/s -- but those are
+      (Altitude and speed quantise too, to 0.2 m and 0.001 m/s, but those are
       below GPS noise.)
     - **Device attribution is best-effort.** ``serial_number``, ``time_created``,
       and the device name (as free-text ``product_name``) are written; the
@@ -563,7 +563,7 @@ def _build_file_id(device: Device, start: datetime | None, fit: _FitTool) -> obj
 
     Device attribution is best-effort. The serial number and the device name (as
     free-text ``product_name``) are written verbatim; the manufacturer is mapped
-    back to the FIT enum only when its name matches, otherwise omitted -- we never
+    back to the FIT enum only when its name matches, otherwise omitted. We never
     force an unknown maker onto a wrong code.
     """
     message = fit.FileIdMessage()
@@ -636,7 +636,7 @@ def _build_record(point: TrackPoint, fit: _FitTool) -> object:
     """Build one ``record`` message, setting only the channels the point carries.
 
     A ``None`` channel is left unset so fit-tool writes the FIT *invalid* sentinel
-    and the reader maps it back to ``None`` -- an absent channel is never written
+    and the reader maps it back to ``None``, so an absent channel is never written
     as ``0``.
 
     Raises

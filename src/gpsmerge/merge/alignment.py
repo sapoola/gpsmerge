@@ -3,7 +3,7 @@
 When two devices record the same ride, their clocks rarely agree to the second.
 Stacking borrows a donor's sensor channels onto the master's timeline by
 timestamp, so a donor clock that runs a few seconds fast or slow smears the
-borrowed channel -- power lands a moment late, heart rate a moment early. This
+borrowed channel: power lands a moment late, heart rate a moment early. This
 module measures that offset.
 
 It cross-correlates one channel both activities record: slide the donor's series
@@ -38,7 +38,7 @@ def best_shared_channel(master: Activity, donor: Activity) -> str | None:
     """Return the best channel to correlate the two activities on, or ``None``.
 
     A channel is usable only when both activities record it *and* it actually
-    varies on both sides -- a pinned, constant signal carries no shape to align.
+    varies on both sides: a pinned, constant signal carries no shape to align.
     Among the usable channels the first in priority order
     (speed, power, hr, cad, ele) is chosen.
 
@@ -91,7 +91,7 @@ def detect_clock_offset(
     float
         The seconds to add to every donor timestamp. ``0.0`` when there is no
         shared varying channel, too little time overlap to grid, or the best
-        correlation does not clear :data:`CONFIDENCE_THRESHOLD` -- we do not shift
+        correlation does not clear :data:`CONFIDENCE_THRESHOLD`. We do not shift
         on a guess.
     """
     channel = best_shared_channel(master, donor)

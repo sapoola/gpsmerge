@@ -116,7 +116,7 @@ def main_callback(
     if ctx.invoked_subcommand is not None:
         return
     # In a terminal, bare 'gpsmerge' is the headline experience: the wizard.
-    # Piped or in CI (no TTY), never block on prompts -- just point the way.
+    # Piped or in CI (no TTY), never block on prompts; just point the way.
     if sys.stdin.isatty():
         raise typer.Exit(wizard.run())
     typer.echo(
@@ -435,8 +435,8 @@ def run(
         raise typer.Exit(EXIT_USAGE) from exc
 
     result = run_pipeline(settings)
-    # When no --out was given (dry run only), there is no real path to report --
-    # drop the placeholder so the preview shows "(dry run, no file written)".
+    # When no --out was given (dry run only), there is no real path to report,
+    # so drop the placeholder and the preview shows "(dry run, no file written)".
     if output is None:
         result.output = None
     _report(result, json_output)
@@ -484,7 +484,7 @@ def _chosen_profile(
     """Return the settings worth saving: the ones the user actually chose.
 
     Only keys whose flag was typed on the command line, or that came from a
-    loaded ``--profile``, are saved -- untouched defaults are left out, so a
+    loaded ``--profile``, are saved. Untouched defaults are left out, so a
     profile captures intent (e.g. "TCX in Amsterdam time"), not the whole config.
 
     Parameters

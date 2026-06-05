@@ -31,7 +31,7 @@ def write(activity: Activity, path: Path, output_format: str) -> None:
     The activity is serialised to a temporary file in the *same* directory as
     ``path`` and then :func:`os.replace`-d onto it, which is atomic on a single
     filesystem. A crash or error part-way through therefore leaves any existing
-    ``path`` untouched rather than half-overwritten -- the destination either holds
+    ``path`` untouched rather than half-overwritten: the destination either holds
     the previous file or the complete new one, never a truncated mix. The same
     directory matters: a cross-filesystem replace is not atomic, so a temp file in
     the system temp dir would defeat the guarantee.
