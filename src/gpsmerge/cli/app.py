@@ -1,7 +1,7 @@
 """Command-line entry point for gpsmerge.
 
 Bare ``gpsmerge`` in a terminal launches the guided wizard (see
-:mod:`gpsmerge.wizard`); piped or in CI it prints a hint instead, so
+:mod:`gpsmerge.cli.wizard`); piped or in CI it prints a hint instead, so
 non-interactive use never hangs. The ``run`` command merges files
 non-interactively: every flag maps onto a single
 :class:`~gpsmerge.config.Settings`, the pipeline does the work, and this module
@@ -20,7 +20,8 @@ import typer
 from pydantic import ValidationError
 from rich.console import Console
 
-from gpsmerge import __version__, profiles, wizard
+from gpsmerge import __version__, profiles
+from gpsmerge.cli import wizard
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
 from gpsmerge.pipeline import RunResult

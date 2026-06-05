@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from gpsmerge import wizard
+from gpsmerge.cli import wizard
 from gpsmerge.io.read import read
 
 # A two-point GPX with one segment; placeholders are filled per file.

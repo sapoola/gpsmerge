@@ -14,7 +14,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gpsmerge import profiles
-from gpsmerge.cli import app
+from gpsmerge.cli.app import app
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
 
@@ -440,6 +440,6 @@ def test_save_profile_with_an_unsafe_name_exits_usage(
 @pytest.mark.unit
 def test_profile_key_param_map_covers_every_saveable_key() -> None:
     # Guard against the cli map and the profiles key list drifting apart.
-    from gpsmerge.cli import _PROFILE_KEY_TO_PARAM
+    from gpsmerge.cli.app import _PROFILE_KEY_TO_PARAM
 
     assert {key for key, _ in _PROFILE_KEY_TO_PARAM} == set(profiles.SAVEABLE_KEYS)

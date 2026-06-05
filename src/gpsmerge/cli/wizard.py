@@ -25,7 +25,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from gpsmerge import banner, profiles
+from gpsmerge import profiles
+from gpsmerge.cli import banner
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
 from gpsmerge.io.read import READABLE_SUFFIXES, read
