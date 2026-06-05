@@ -21,20 +21,17 @@ The channel is chosen automatically, never forced by a flag:
 - else a clear :class:`~gpsmerge.errors.WorkoutError` -- there is nothing to
   detect a workout from.
 
-The one design idea worth understanding is how a "real" step is told from noise.
 A boundary counts only when the level shifts by at least
 ``delta_min = max(FLOOR, K_AVG * ride_average)``, where ``ride_average`` is the
-plain mean of the chosen channel's recorded samples. Scaling the threshold to
-the ride's *own average* (not to FTP, not to a percentile, not to any user
-input) makes it self-calibrating: a rider whose ride averages ~110 W treats a
-100->130 W step as a real interval (+27% of average), while a rider whose ride
-averages ~350 W treats the same +30 W as noise within one block (~8.5%). The
-same idea applies to speed, scaled to the average speed.
+plain mean of the chosen channel's recorded samples. Scaling the threshold to the
+ride's *own average* makes it self-calibrating: a rider whose ride averages ~110 W
+treats a 100->130 W step as a real interval (+27% of average), while a rider whose
+ride averages ~350 W treats the same +30 W as noise within one block (~8.5%). The
+same applies to speed, scaled to the average speed.
 
 numpy does the segmentation maths and is an *optional* extra
-(``pip install 'gpsmerge[workout]'``). It is imported lazily inside the detector
-so the core install stays numpy-free, exactly as :mod:`gpsmerge.io.fit` defers
-fit-tool.
+(``pip install 'gpsmerge[workout]'``); it is imported lazily inside the detector
+so the core install stays numpy-free.
 """
 
 from __future__ import annotations
@@ -54,9 +51,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
 
 # --- tuning constants --------------------------------------------------------
 #
-# These are the knobs the detector turns. They are deliberately named and
-# gathered here: the algorithm is a heuristic, so the constants ARE the
-# behaviour, and an adversarial review tunes them in one place.
+# Tuning constants for the detection heuristic, gathered in one place.
 
 # A real interval is a sustained change of at least this fraction of the ride's
 # own average effort. 0.15 (15%) is the crux of the self-scaling design: it is

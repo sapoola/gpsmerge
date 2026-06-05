@@ -1,10 +1,9 @@
 """Check that a set of inputs can actually be merged, before doing any work.
 
 :func:`validate` runs once, after the files are read and before the merge, and
-returns a list of :class:`~gpsmerge.errors.Issue`. An empty list means "go
-ahead". The same list drives both the interactive recovery prompts (later) and
-the non-interactive exit codes, so a problem is explained the same way however
-the tool is run.
+returns a list of :class:`~gpsmerge.errors.Issue`. An empty list means the merge
+can proceed; the same list drives both the interactive recovery prompts and the
+non-interactive exit codes.
 """
 
 from __future__ import annotations

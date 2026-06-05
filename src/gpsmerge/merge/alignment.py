@@ -6,16 +6,12 @@ timestamp, so a donor clock that runs a few seconds fast or slow smears the
 borrowed channel -- power lands a moment late, heart rate a moment early. This
 module measures that offset.
 
-It does so by cross-correlating one channel the two activities *both* record:
-slide the donor's series against the master's, second by second, and keep the
-shift that lines the two shapes up best. The shift is reported as the number of
-seconds to add to the donor's timestamps, which :mod:`gpsmerge.merge` then
-applies to a copy of the donor before borrowing from it. The master is never
-moved.
-
-Pure Python and model-aware only through reading points; the correlation itself
-works on plain ``(time_seconds, value)`` numbers and reuses
-:func:`gpsmerge.util.resample.lerp` to sample each side on a common grid.
+It cross-correlates one channel both activities record: slide the donor's series
+against the master's, second by second, and keep the shift that lines the two
+shapes up best. The shift is the number of seconds to add to the donor's
+timestamps, which :mod:`gpsmerge.merge` applies to a copy of the donor before
+borrowing from it. The correlation reuses :func:`gpsmerge.util.resample.lerp` to
+sample each side on a common grid.
 """
 
 from __future__ import annotations

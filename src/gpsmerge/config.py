@@ -1,12 +1,8 @@
 """The settings object that describes one merge.
 
 Everything the wizard collects or the command-line flags set ends up in a single
-:class:`Settings` instance, which the pipeline reads. Keeping one validated
-object means the interactive and scripted paths share exactly the same inputs,
-and there is one obvious place to see every option a merge takes.
-
-The model grows with the tool. Today it carries what appending needs; stacking
-options arrive with stacking.
+:class:`Settings` instance, which the pipeline reads, so the interactive and
+scripted paths share exactly the same inputs.
 """
 
 from __future__ import annotations

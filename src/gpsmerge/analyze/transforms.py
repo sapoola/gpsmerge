@@ -2,10 +2,8 @@
 
 A merge produces one :class:`~gpsmerge.model.Activity`; these transforms tidy it
 up afterwards. Each is a plain function that takes an activity and returns a new
-one -- they never mutate the input, building fresh :class:`Segment` and
-:class:`TrackPoint` objects with :func:`dataclasses.replace`, exactly as the merge
-does. That keeps them composable: the pipeline chains them in a fixed order and
-each sees the previous one's clean output.
+one, never mutating the input -- it builds fresh :class:`Segment` and
+:class:`TrackPoint` objects with :func:`dataclasses.replace`, as the merge does.
 
 The adjustments and what each fixes:
 
@@ -16,14 +14,9 @@ The adjustments and what each fixes:
   spikes need flattening.
 - :func:`insert_stopped_time` -- a long non-moving gap should count as a pause
   (stopped time), not as moving time.
-- :func:`auto_lap` -- the laps should be even distance splits (every 1 km, say)
-  rather than whatever the source recorded.
-
-:func:`auto_lap` is the first transform that *generates* a timeline overlay
-rather than adjusting points, so it shares the small
-:func:`laps_from_boundaries` helper -- "turn a list of boundary times into
-:class:`Lap` objects" -- which a later workout detector reuses to build laps from
-the boundaries it finds.
+- :func:`auto_lap` -- re-lap into even distance splits (every 1 km, say) rather
+  than whatever the source recorded; it builds the lap overlay through the shared
+  :func:`laps_from_boundaries` helper.
 """
 
 from __future__ import annotations

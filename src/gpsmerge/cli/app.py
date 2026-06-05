@@ -35,11 +35,10 @@ app = typer.Typer(
     add_completion=False,
 )
 
-# Route coloured output through rich rather than typer.secho. A rich Console
-# honours the NO_COLOR and FORCE_COLOR environment variables on its own, so the
-# decision to emit ANSI lives in one place instead of at every call site. Two
-# consoles keep the existing stdout/stderr split: errors and the no-output hint
-# go to stderr, the preview and its warnings go to stdout.
+# Route coloured output through rich rather than typer.secho: a rich Console
+# honours the NO_COLOR and FORCE_COLOR environment variables on its own. Two
+# consoles keep the stdout/stderr split: errors and the no-output hint go to
+# stderr, the preview and its warnings go to stdout.
 _err_console = Console(stderr=True)
 _out_console = Console()
 

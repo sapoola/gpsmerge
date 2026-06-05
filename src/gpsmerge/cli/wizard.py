@@ -7,12 +7,9 @@ It collects answers into a :class:`~gpsmerge.config.Settings` and hands that to
 :func:`gpsmerge.pipeline.run`, exactly as the ``run`` command does -- the two
 paths share the same engine and the same exit codes.
 
-The design is deliberately flat: :func:`run` calls one small step function per
-question, top to bottom, and each step calls :mod:`questionary` and returns a
-value. There is no wizard framework, no step registry, and no base class -- a
-junior can read it as a story. Unhappy paths are first-class: a missing file is
-re-prompted, a mode that contradicts the data offers the recommended switch, and
-a cancelled prompt returns a usage exit code instead of a stack trace.
+Unhappy paths are handled rather than crashing: a missing file is re-prompted, a
+mode that contradicts the data offers the recommended switch, and a cancelled
+prompt returns a usage exit code instead of a stack trace.
 """
 
 from __future__ import annotations

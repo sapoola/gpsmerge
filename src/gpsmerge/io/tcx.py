@@ -207,7 +207,7 @@ def _read_lap(lap_el: etree._Element) -> Lap:
     ``TotalTimeSeconds`` when that child is present, else ``None``. The trigger is
     the mapped ``<TriggerMethod>``, or ``None`` when absent or unrecognised. Only
     the span and trigger are kept -- the lap's own summary totals are recomputed
-    from its points on write, so we deliberately ignore them here.
+    from its points on write, so we ignore them here.
     """
     # StartTime is mandatory in the TCX schema; fall back to the epoch only so a
     # malformed lap without it still parses rather than crashing the whole read.

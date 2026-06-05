@@ -1,10 +1,9 @@
 """Typed errors and the :class:`Issue` type used to report problems to the user.
 
-An :class:`Issue` is a problem we can explain and recover from (the wrong number
-of files, overlapping inputs, an output path we cannot write). Each one carries
-the process exit code it should produce, so the same value drives both the
-message a person reads and the status code a script checks. The ``EXIT_*``
-constants are the whole taxonomy.
+An :class:`Issue` is a recoverable problem (the wrong number of files, overlapping
+inputs, an output path we cannot write). Each carries the process exit code it
+produces, so one value drives both the message shown and a script's status code.
+The ``EXIT_*`` constants define those codes.
 """
 
 from __future__ import annotations

@@ -10,10 +10,6 @@ Profiles live under the platform config dir (``profiles_dir``), one ``.toml``
 file per profile. Only the keys in :data:`SAVEABLE_KEYS` are ever stored, and
 only when their value is not ``None`` -- TOML has no null, and a ``None`` simply
 means "fall back to the default", which a saved profile should not pin.
-
-The module is deliberately a handful of plain functions over that directory:
-there is no profile object or registry, because a name and a dict are all a
-profile is.
 """
 
 from __future__ import annotations

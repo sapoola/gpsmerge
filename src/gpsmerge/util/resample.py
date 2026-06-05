@@ -2,12 +2,10 @@
 
 When two activities are merged, one is the donor of a channel (heart rate,
 power, ...) the other lacks. The donor was sampled on its own clock, so its
-values must be projected onto the target activity's timestamps. This module does
-that projection for one channel, in seconds, as plain floats.
-
-It deliberately knows nothing about the data model: callers pass and receive
-``(time_seconds, value)`` numbers, and the merge layer is responsible for any
-rounding (e.g. heart rate back to an ``int``).
+values are projected onto the target activity's timestamps. This module does that
+projection for one channel, in seconds, as plain floats: callers pass and receive
+``(time_seconds, value)`` numbers, and the merge layer does any rounding (e.g.
+heart rate back to an ``int``).
 """
 
 from __future__ import annotations
