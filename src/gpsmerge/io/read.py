@@ -10,10 +10,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from gpsmerge.errors import ParseError, UnsupportedFormat
-from gpsmerge.fit import read_fit
-from gpsmerge.gpx import read_gpx
+from gpsmerge.io.fit import read_fit
+from gpsmerge.io.gpx import read_gpx
+from gpsmerge.io.tcx import read_tcx
 from gpsmerge.model import Activity
-from gpsmerge.tcx import read_tcx
 
 # The file extensions :func:`read` understands. One source of truth so the
 # wizard's file validation and prompt text never drift from what this module

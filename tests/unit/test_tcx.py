@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from lxml.etree import LxmlError
 
+from gpsmerge.io.tcx import read_tcx, write_tcx
 from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
-from gpsmerge.tcx import read_tcx, write_tcx
 
 
 def _sample_activity() -> Activity:

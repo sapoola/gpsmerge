@@ -25,9 +25,10 @@ from gpsmerge.errors import (
     WorkoutError,
     WriteError,
 )
+from gpsmerge.io.read import read
+from gpsmerge.io.write import write
 from gpsmerge.merge import append, detect_mode, stack
 from gpsmerge.model import Activity, TrackPoint
-from gpsmerge.read import read
 from gpsmerge.transforms import (
     auto_lap,
     insert_stopped_time,
@@ -39,7 +40,6 @@ from gpsmerge.util.geo import cumulative_distance, haversine
 from gpsmerge.util.timeutil import parse_duration, parse_time, parse_timezone
 from gpsmerge.validate import validate
 from gpsmerge.workout import detect_workout
-from gpsmerge.write import write
 
 # A position jump at least this large is called out in the preview as a likely
 # gap, so a person sees it before trusting the merged distance.

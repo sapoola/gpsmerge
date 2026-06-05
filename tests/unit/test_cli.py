@@ -18,8 +18,8 @@ from gpsmerge.errors import (
     EXIT_USAGE,
     EXIT_WRITE,
 )
+from gpsmerge.io.read import read
 from gpsmerge.model import Activity, Segment, TrackPoint
-from gpsmerge.read import read
 
 runner = CliRunner()
 
@@ -31,7 +31,7 @@ def _write_power_gpx(path: Path, *, start_offset: int, levels: list[int]) -> Pat
     appended back-to-back without overlapping. Positions tick along so GPX (which
     needs a position) is valid.
     """
-    from gpsmerge.gpx import write_gpx
+    from gpsmerge.io.gpx import write_gpx
 
     base = datetime(2026, 6, 4, 8, 0, 0, tzinfo=UTC)
     points = [

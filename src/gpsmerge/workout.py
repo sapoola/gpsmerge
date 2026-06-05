@@ -33,7 +33,7 @@ same idea applies to speed, scaled to the average speed.
 
 numpy does the segmentation maths and is an *optional* extra
 (``pip install 'gpsmerge[workout]'``). It is imported lazily inside the detector
-so the core install stays numpy-free, exactly as :mod:`gpsmerge.fit` defers
+so the core install stays numpy-free, exactly as :mod:`gpsmerge.io.fit` defers
 fit-tool.
 """
 
@@ -198,7 +198,7 @@ def _load_numpy() -> Any:
     install does without it. The detector imports it only when actually run, and
     turns a missing import into an actionable :class:`RuntimeError` rather than
     letting an opaque ``ImportError`` surface -- mirroring how
-    :func:`gpsmerge.fit._load_fit_tool` defers fit-tool.
+    :func:`gpsmerge.io.fit._load_fit_tool` defers fit-tool.
     """
     try:
         import numpy

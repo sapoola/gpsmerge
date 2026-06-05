@@ -1,6 +1,6 @@
 """Write an :class:`~gpsmerge.model.Activity` to a file in a chosen format.
 
-The mirror of :mod:`gpsmerge.read`: one place that maps an output format name to
+The mirror of :mod:`gpsmerge.io.read`: one place that maps an output format name to
 a writer. Adding a format is one ``if`` branch plus its ``write_<format>``
 function.
 """
@@ -13,10 +13,10 @@ from pathlib import Path
 from tempfile import mkstemp
 
 from gpsmerge.errors import UnsupportedFormat
-from gpsmerge.fit import write_fit
-from gpsmerge.gpx import write_gpx
+from gpsmerge.io.fit import write_fit
+from gpsmerge.io.gpx import write_gpx
+from gpsmerge.io.tcx import write_tcx
 from gpsmerge.model import Activity
-from gpsmerge.tcx import write_tcx
 
 # Maps an output format to the writer that serialises an Activity to a path.
 # ``fit`` is experimental and needs the optional ``fit-tool`` extra; write_fit

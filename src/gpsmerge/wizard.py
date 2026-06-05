@@ -28,11 +28,11 @@ from rich.table import Table
 from gpsmerge import banner, profiles
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
+from gpsmerge.io.read import READABLE_SUFFIXES, read
 from gpsmerge.merge import detect_mode
 from gpsmerge.model import Activity
 from gpsmerge.pipeline import RunResult
 from gpsmerge.pipeline import run as run_pipeline
-from gpsmerge.read import READABLE_SUFFIXES, read
 from gpsmerge.util.geo import parse_distance
 from gpsmerge.util.timeutil import local_range, utc_range, zone_label
 

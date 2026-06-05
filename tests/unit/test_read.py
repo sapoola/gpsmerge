@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from gpsmerge.errors import ParseError, UnsupportedFormat
-from gpsmerge.read import read
+from gpsmerge.io.read import read
 
 _MINIMAL_GPX = """<?xml version="1.0" encoding="UTF-8"?>
 <gpx creator="Device" version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
