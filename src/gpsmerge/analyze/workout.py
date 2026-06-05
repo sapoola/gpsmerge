@@ -43,9 +43,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from gpsmerge.analyze.transforms import laps_from_boundaries
 from gpsmerge.errors import WorkoutError
 from gpsmerge.model import Activity, Lap
-from gpsmerge.transforms import laps_from_boundaries
 from gpsmerge.util.resample import lerp
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -115,7 +115,7 @@ class Workout:
         The detected steps, in order.
     laps : list of Lap
         The same steps as :class:`~gpsmerge.model.Lap` overlays, built through
-        the shared :func:`gpsmerge.transforms.laps_from_boundaries` helper, so
+        the shared :func:`gpsmerge.analyze.transforms.laps_from_boundaries` helper, so
         they persist into TCX/FIT writes (both degrade the ``"power"``/``"speed"``
         trigger to ``"manual"`` on write).
     summary : str

@@ -13,6 +13,14 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
+from gpsmerge.analyze.transforms import (
+    auto_lap,
+    insert_stopped_time,
+    shift_time,
+    smooth_elevation,
+    trim,
+)
+from gpsmerge.analyze.workout import detect_workout
 from gpsmerge.config import Settings
 from gpsmerge.errors import (
     EXIT_EMPTY_RESULT,
@@ -29,17 +37,9 @@ from gpsmerge.io.read import read
 from gpsmerge.io.write import write
 from gpsmerge.merge import append, detect_mode, stack
 from gpsmerge.model import Activity, TrackPoint
-from gpsmerge.transforms import (
-    auto_lap,
-    insert_stopped_time,
-    shift_time,
-    smooth_elevation,
-    trim,
-)
 from gpsmerge.util.geo import cumulative_distance, haversine
 from gpsmerge.util.timeutil import parse_duration, parse_time, parse_timezone
 from gpsmerge.validate import validate
-from gpsmerge.workout import detect_workout
 
 # A position jump at least this large is called out in the preview as a likely
 # gap, so a person sees it before trusting the merged distance.
