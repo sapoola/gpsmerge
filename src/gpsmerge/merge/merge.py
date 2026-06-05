@@ -18,8 +18,8 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from gpsmerge import alignment
 from gpsmerge.config import Settings
+from gpsmerge.merge import alignment
 from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
 from gpsmerge.util.geo import haversine
 from gpsmerge.util.resample import lerp
@@ -285,7 +285,7 @@ def stack(activities: list[Activity], settings: Settings) -> Activity:
     the first leaves.
 
     With ``clock_align`` set, each donor's clock offset relative to the master is
-    detected first (see :mod:`gpsmerge.alignment`) and its readings are shifted
+    detected first (see :mod:`gpsmerge.merge.alignment`) and its readings are shifted
     onto the master's clock before being borrowed, so a device whose clock is a
     few seconds off no longer smears its channel. The master is never shifted.
 
