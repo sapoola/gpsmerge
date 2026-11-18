@@ -586,3 +586,30 @@ def test_clean_path_unwraps_drag_and_drop_forms() -> None:
     assert wizard._clean_path(r"/a\ b/c.fit") == "/a b/c.fit"
     assert wizard._clean_path("/a b/c.fit") == "/a b/c.fit"  # unquoted spaces kept
     assert wizard._clean_path("/it's/c.fit") == "/it's/c.fit"  # unbalanced quote
+
+
+@pytest.mark.unit
+def test_no_gps_recordings_are_not_offered_gpx(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import UTC, datetime
+
+    from rich.console import Console
+
+    from gpsmerge.model import Activity, Segment, TrackPoint
+
+    indoor = Activity(
+        segments=[
+            Segment(points=[TrackPoint(time=datetime(2026, 1, 1, tzinfo=UTC), hr=120)])
+        ]
+    )
+    offered: list[Any] = []
+
+    def select(_msg: str, choices: list[Any], default: str) -> _Answer:
+        offered.extend(c.value for c in choices)
+        return _Answer(default)
+
+    monkeypatch.setattr(wizard.questionary, "select", select)
+
+    assert wizard.Wizard(Console())._ask_output_format([indoor]) == "tcx"
+    assert "gpx" not in offered
