@@ -613,3 +613,29 @@ def test_no_gps_recordings_are_not_offered_gpx(
 
     assert wizard.Wizard(Console())._ask_output_format([indoor]) == "tcx"
     assert "gpx" not in offered
+
+
+@pytest.mark.unit
+def test_cancel_then_back_rewinds_one_step_and_finishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a, b = _two_sequential_files(tmp_path)
+    output = tmp_path / "merged.gpx"
+
+    _ScriptedPrompts(
+        select=[
+            "append",
+            "pause",
+            None,  # Ctrl-C at the device prompt ...
+            "back",  # ... then "go back a step": step 4 is asked again
+            "pause",
+            "Garmin Edge 530",
+            "gpx",
+        ],
+        path=[str(a), str(b), "", str(output)],  # files are not re-asked
+        text=["", "", "", ""],
+        confirm=[False, False, True, True],  # big gaps (twice), clean-up, write it
+    ).install(monkeypatch)
+
+    assert wizard.run() == 0
+    assert output.exists()

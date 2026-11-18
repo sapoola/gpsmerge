@@ -54,7 +54,11 @@ _BIG_GAP_LIMIT_M = 250.0
 
 
 class _Cancelled(Exception):
-    """Raised internally when the user aborts a prompt (Ctrl-C)."""
+    """Raised internally when the user aborts a prompt (Ctrl-C) and chooses to quit."""
+
+
+class _Back(Exception):
+    """Raised internally when the user aborts a prompt (Ctrl-C) and chooses to go back."""
 
 
 def run() -> int:
@@ -80,81 +84,139 @@ class Wizard:
 
     def __init__(self, console: Console) -> None:
         self._console = console
+        self._intent = "auto"
+        self._mode = "auto"
+        self._paths: list[Path] = []
+        self._activities: list[Activity] = []
+        self._channel_sources: dict[str, Path] = {}
+        self._clock_align = False
+        self._gap_policy = "pause"
+        self._ignore_big_gaps = False
+        self._device_from: Path | None = None
+        self._output_format = "gpx"
+        self._timezone: str | None = None
+        self._sport: str | None = None
+        self._detect_workout = False
+        self._auto_lap_m: float | None = None
+        self._clean_up = True
+        self._output = Path("merged.gpx")
+        self._assume_yes = False
+        self._exit = 0
 
     def run(self) -> int:
-        """Drive the walkthrough and return the process exit code."""
+        """Drive the walkthrough and return the process exit code.
+
+        Each step is a method that asks its questions and stores the answers. A
+        Ctrl-C at any prompt offers to go back a step, so the loop can rewind to
+        the previous step and ask it again.
+        """
         banner.render(self._console)
         self._console.print(
-            "I'll walk you through merging your files. Press Ctrl-C any time to stop.\n"
+            "I'll walk you through merging your files. Press Ctrl-C any time to "
+            "go back a step or stop.\n"
         )
 
-        try:
-            self._section("Step 1: what are we doing?", "🧭")
-            mode = self._ask_intent()
+        steps = (
+            self._step_intent,
+            self._step_files,
+            self._step_found,
+            self._step_sources,
+            self._step_options,
+            self._step_preview,
+        )
+        index = 0
+        while index < len(steps):
+            try:
+                steps[index]()
+                index += 1
+            except _Back:
+                if index == 0:
+                    return self._stopped()
+                index -= 1
+            except _Cancelled:
+                return self._stopped()
+        return self._exit
 
-            self._section("Step 2: your files", "📁")
-            paths = self._ask_files()
-            activities = [read(path) for path in paths]
+    def _stopped(self) -> int:
+        """Say nothing was written and return the usage exit code."""
+        self._console.print(
+            "\n[yellow]No problem, stopped here. Nothing was written.[/yellow]"
+        )
+        return EXIT_USAGE
 
-            self._section("Step 3: what I found", "🔍")
-            mode = self._confirm_mode(activities, mode)
+    def _step_intent(self) -> None:
+        self._section("Step 1: what are we doing?", "🧭")
+        self._intent = self._ask_intent()
 
-            self._section("Step 4: where each channel comes from", "🎚️")
-            channel_sources = (
-                self._ask_stack_sources(paths, activities) if mode == "stack" else {}
-            )
-            clock_align = self._ask_clock_align() if mode == "stack" else False
-            gap_policy, ignore_big_gaps = (
-                self._ask_append_options() if mode == "append" else ("pause", False)
-            )
-            device_from = self._ask_device(paths, activities)
+    def _step_files(self) -> None:
+        self._section("Step 2: your files", "📁")
+        self._paths = self._ask_files()
+        self._activities = [read(path) for path in self._paths]
 
-            self._section("Step 5: output options", "⚙️")
-            output_format = self._ask_output_format(activities)
-            timezone = self._ask_timezone()
-            sport = self._ask_sport()
-            # The workout offer and the auto-lap offer both set the laps, so they
-            # are mutually exclusive: only offer auto-lap when the user did not
-            # opt into workout detection.
-            detect_workout = self._ask_detect_workout(activities)
-            auto_lap_m = None if detect_workout else self._ask_auto_lap()
-            clean_up = self._ask_clean_up()
-            output, assume_yes = self._ask_output_path(paths, output_format)
-        except _Cancelled:
-            self._console.print(
-                "\n[yellow]No problem, stopped here. Nothing was written.[/yellow]"
-            )
-            return EXIT_USAGE
+    def _step_found(self) -> None:
+        self._section("Step 3: what I found", "🔍")
+        self._mode = self._confirm_mode(self._activities, self._intent)
 
+    def _step_sources(self) -> None:
+        self._section("Step 4: where each channel comes from", "🎚️")
+        paths, activities = self._paths, self._activities
+        stack = self._mode == "stack"
+        self._channel_sources = (
+            self._ask_stack_sources(paths, activities) if stack else {}
+        )
+        self._clock_align = self._ask_clock_align() if stack else False
+        self._gap_policy, self._ignore_big_gaps = (
+            self._ask_append_options() if self._mode == "append" else ("pause", False)
+        )
+        self._device_from = self._ask_device(paths, activities)
+
+    def _step_options(self) -> None:
+        self._section("Step 5: output options", "⚙️")
+        self._output_format = self._ask_output_format(self._activities)
+        self._timezone = self._ask_timezone()
+        self._sport = self._ask_sport()
+        # The workout offer and the auto-lap offer both set the laps, so they
+        # are mutually exclusive: only offer auto-lap when the user did not
+        # opt into workout detection.
+        self._detect_workout = self._ask_detect_workout(self._activities)
+        self._auto_lap_m = None if self._detect_workout else self._ask_auto_lap()
+        self._clean_up = self._ask_clean_up()
+        self._output, self._assume_yes = self._ask_output_path(
+            self._paths, self._output_format
+        )
+
+    def _step_preview(self) -> None:
         # Built via model_validate so pydantic checks the literal fields (mode,
         # format, gap policy): the same construction path the 'run' command uses.
+        sources = self._channel_sources
         settings = Settings.model_validate(
             {
-                "inputs": paths,
-                "output": output,
-                "output_format": output_format,
-                "mode": mode,
-                "clock_align": clock_align,
-                "position_from": channel_sources.get("position_from"),
-                "hr_from": channel_sources.get("hr_from"),
-                "cadence_from": channel_sources.get("cadence_from"),
-                "power_from": channel_sources.get("power_from"),
-                "temp_from": channel_sources.get("temp_from"),
-                "gap_policy": gap_policy,
-                "ignore_big_gaps_m": _BIG_GAP_LIMIT_M if ignore_big_gaps else None,
-                "dedupe": clean_up,
-                "recompute_distance": clean_up,
-                "device_from": device_from,
-                "sport": sport,
-                "timezone": timezone,
-                "auto_lap_m": auto_lap_m,
-                "detect_workout": detect_workout,
-                "assume_yes": assume_yes,
+                "inputs": self._paths,
+                "output": self._output,
+                "output_format": self._output_format,
+                "mode": self._mode,
+                "clock_align": self._clock_align,
+                "position_from": sources.get("position_from"),
+                "hr_from": sources.get("hr_from"),
+                "cadence_from": sources.get("cadence_from"),
+                "power_from": sources.get("power_from"),
+                "temp_from": sources.get("temp_from"),
+                "gap_policy": self._gap_policy,
+                "ignore_big_gaps_m": (
+                    _BIG_GAP_LIMIT_M if self._ignore_big_gaps else None
+                ),
+                "dedupe": self._clean_up,
+                "recompute_distance": self._clean_up,
+                "device_from": self._device_from,
+                "sport": self._sport,
+                "timezone": self._timezone,
+                "auto_lap_m": self._auto_lap_m,
+                "detect_workout": self._detect_workout,
+                "assume_yes": self._assume_yes,
                 "dry_run": True,  # preview first; the real write happens on confirm
             }
         )
-
-        return self._preview_then_write(settings)
+        self._exit = self._preview_then_write(settings)
 
     def _section(self, label: str, symbol: str) -> None:
         """Draw a section header rule to mark a new phase of the walkthrough.
@@ -738,7 +800,13 @@ class Wizard:
         self._show_preview(preview_result)
 
         write_it = bool(
-            _safe_confirm("Happy with that? Shall I write the file?", default=True)
+            _ask(
+                questionary.confirm(
+                    "Happy with that? Shall I write the file? "
+                    "(Ctrl-C to go back and change something)",
+                    default=True,
+                )
+            )
         )
         if not write_it:
             self._console.print(
@@ -862,7 +930,7 @@ class Wizard:
 
 
 def _ask(question: questionary.Question) -> object:
-    """Ask one questionary question, turning a cancel into :class:`_Cancelled`.
+    """Ask one questionary question; a cancel (Ctrl-C) offers to go back or quit.
 
     Parameters
     ----------
@@ -876,19 +944,27 @@ def _ask(question: questionary.Question) -> object:
 
     Raises
     ------
+    _Back
+        If the user aborted the prompt and chose to go back a step.
     _Cancelled
-        If the user aborted the prompt (questionary returns ``None``).
+        If the user aborted the prompt and chose to quit (or aborted the menu).
     """
-    answer = question.ask()
-    if answer is None:
-        raise _Cancelled
-    return answer
-
-
-def _safe_confirm(message: str, *, default: bool) -> bool:
-    """Confirm, treating a cancel as 'no' so the final step never crashes."""
-    answer = questionary.confirm(message, default=default).ask()
-    return bool(answer) if answer is not None else False
+    while True:
+        answer = question.ask()
+        if answer is not None:
+            return answer
+        choice = questionary.select(
+            "Hold on, what would you like to do?",
+            choices=[
+                questionary.Choice("Carry on with this question", value="stay"),
+                questionary.Choice("Go back a step", value="back"),
+                questionary.Choice("Stop (nothing is written)", value="quit"),
+            ],
+        ).ask()
+        if choice == "back":
+            raise _Back
+        if choice != "stay":
+            raise _Cancelled
 
 
 def _clean_path(entry: str) -> str:
