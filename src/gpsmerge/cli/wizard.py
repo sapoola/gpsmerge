@@ -14,6 +14,7 @@ prompt returns a usage exit code instead of a stack trace.
 
 from __future__ import annotations
 
+import shlex
 from datetime import datetime
 from pathlib import Path
 
@@ -230,12 +231,13 @@ class Wizard:
                 )
                 continue
 
-            problem = _file_problem(Path(entry))
+            path = Path(_clean_path(entry)).expanduser()
+            problem = _file_problem(path)
             if problem is not None:
                 self._console.print(f"[red]{problem}[/red]")
                 continue
 
-            paths.append(Path(entry))
+            paths.append(path)
             self._show_file_list(paths)
 
     def _show_file_list(self, paths: list[Path]) -> None:
@@ -877,6 +879,15 @@ def _safe_confirm(message: str, *, default: bool) -> bool:
     """Confirm, treating a cancel as 'no' so the final step never crashes."""
     answer = questionary.confirm(message, default=default).ask()
     return bool(answer) if answer is not None else False
+
+
+def _clean_path(entry: str) -> str:
+    """Undo the quoting or backslash escapes a terminal adds to a dropped file."""
+    try:
+        parts = shlex.split(entry)
+    except ValueError:
+        return entry
+    return parts[0] if len(parts) == 1 else entry
 
 
 def _files_prompt(count: int) -> str:
