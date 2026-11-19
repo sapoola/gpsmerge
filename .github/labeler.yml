@@ -1,0 +1,31 @@
+# Path-based PR area labels, applied by .github/workflows/labeler.yml
+# (actions/labeler v6). Each label here must already exist in the repo.
+# A PR can match several labels at once; nothing is removed (sync-labels is off).
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "**/*.md"
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - ".pre-commit-config.yaml"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "tests/**"
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "pyproject.toml"
+          - "poetry.lock"
+
+core:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/**"

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Renovate config for gpsmerge. Keeps Python dependencies (PEP 621 [project] deps, optional-dependencies and dependency-groups, plus poetry.lock) and GitHub Actions current by opening PRs. Runs via the hosted Mend Renovate app.",
+  "extends": [
+    "config:best-practices",
+    ":semanticCommits",
+    "schedule:earlyMondays"
+  ],
+  "timezone": "Europe/Amsterdam",
+  "labels": ["dependencies"],
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Tag GitHub Actions updates (maintains our SHA pins + version comments)",
+      "matchManagers": ["github-actions"],
+      "addLabels": ["github-actions"]
+    },
+    {
+      "description": "Tag Python package updates",
+      "matchManagers": ["pep621", "poetry"],
+      "addLabels": ["python"]
+    },
+    {
+      "description": "Tag the update magnitude so PRs can be triaged by risk",
+      "matchUpdateTypes": ["major"],
+      "addLabels": ["major"]
+    },
+    {
+      "matchUpdateTypes": ["minor"],
+      "addLabels": ["minor"]
+    },
+    {
+      "matchUpdateTypes": ["patch"],
+      "addLabels": ["patch"]
+    }
+  ]
+}
