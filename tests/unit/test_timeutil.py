@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from gpsmerge.timeutil import (
+from gpsmerge.util.timeutil import (
     FIT_EPOCH_OFFSET_S,
     fit_timestamp_to_utc,
     parse_duration,

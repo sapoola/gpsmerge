@@ -1,4 +1,4 @@
-"""Tests for FIT writing (the experimental :func:`gpsmerge.fit.write_fit`).
+"""Tests for FIT writing (the experimental :func:`gpsmerge.io.fit.write_fit`).
 
 These exercise the write side by round-tripping through the read side: build an
 :class:`~gpsmerge.model.Activity`, ``write_fit`` it, ``read_fit`` it back, and
@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from gpsmerge.errors import WriteError
-from gpsmerge.fit import read_fit, write_fit
+from gpsmerge.io.fit import read_fit, write_fit
 from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
 
 _BASE = datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC)

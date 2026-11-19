@@ -42,8 +42,8 @@ def parse_distance(spec: str) -> float:
 
     Accepts ``"1km"``, ``"500m"``, ``"0.5mi"``, ``"1mi"``, or a bare number such
     as ``"1000"`` (taken as metres). The unit is case-insensitive and may be
-    separated from the value by spaces. The result must be strictly positive --
-    a zero or negative interval cannot split a track into laps.
+    separated from the value by spaces. The result must be strictly positive: a
+    zero or negative interval cannot split a track into laps.
 
     Parameters
     ----------

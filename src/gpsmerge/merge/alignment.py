@@ -3,25 +3,21 @@
 When two devices record the same ride, their clocks rarely agree to the second.
 Stacking borrows a donor's sensor channels onto the master's timeline by
 timestamp, so a donor clock that runs a few seconds fast or slow smears the
-borrowed channel -- power lands a moment late, heart rate a moment early. This
+borrowed channel: power lands a moment late, heart rate a moment early. This
 module measures that offset.
 
-It does so by cross-correlating one channel the two activities *both* record:
-slide the donor's series against the master's, second by second, and keep the
-shift that lines the two shapes up best. The shift is reported as the number of
-seconds to add to the donor's timestamps, which :mod:`gpsmerge.merge` then
-applies to a copy of the donor before borrowing from it. The master is never
-moved.
-
-Pure Python and model-aware only through reading points; the correlation itself
-works on plain ``(time_seconds, value)`` numbers and reuses
-:func:`gpsmerge.resample.lerp` to sample each side on a common grid.
+It cross-correlates one channel both activities record: slide the donor's series
+against the master's, second by second, and keep the shift that lines the two
+shapes up best. The shift is the number of seconds to add to the donor's
+timestamps, which :mod:`gpsmerge.merge` applies to a copy of the donor before
+borrowing from it. The correlation reuses :func:`gpsmerge.util.resample.lerp` to
+sample each side on a common grid.
 """
 
 from __future__ import annotations
 
 from gpsmerge.model import Activity
-from gpsmerge.resample import lerp
+from gpsmerge.util.resample import lerp
 
 # How far, in seconds, a donor clock is allowed to be off. Real devices drift by
 # a handful of seconds; searching wider only invites a spurious correlation peak.
@@ -42,7 +38,7 @@ def best_shared_channel(master: Activity, donor: Activity) -> str | None:
     """Return the best channel to correlate the two activities on, or ``None``.
 
     A channel is usable only when both activities record it *and* it actually
-    varies on both sides -- a pinned, constant signal carries no shape to align.
+    varies on both sides: a pinned, constant signal carries no shape to align.
     Among the usable channels the first in priority order
     (speed, power, hr, cad, ele) is chosen.
 
@@ -95,7 +91,7 @@ def detect_clock_offset(
     float
         The seconds to add to every donor timestamp. ``0.0`` when there is no
         shared varying channel, too little time overlap to grid, or the best
-        correlation does not clear :data:`CONFIDENCE_THRESHOLD` -- we do not shift
+        correlation does not clear :data:`CONFIDENCE_THRESHOLD`. We do not shift
         on a guess.
     """
     channel = best_shared_channel(master, donor)

@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from rich.console import Console
 
-from gpsmerge import banner
+from gpsmerge.cli import banner
 
 
 @pytest.mark.unit

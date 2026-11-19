@@ -1,4 +1,4 @@
-"""gpsmerge — an offline, local-first merger for GPX, TCX, and FIT activity files."""
+"""gpsmerge: an offline, local-first merger for GPX, TCX, and FIT activity files."""
 
 from __future__ import annotations
 

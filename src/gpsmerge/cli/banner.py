@@ -1,8 +1,7 @@
 """The gpsmerge ASCII banner shown when the guided wizard starts.
 
-The wordmark was generated once with pyfiglet's "standard" font and hardcoded
-here, so there is no runtime dependency on pyfiglet. :func:`render` prints it with
-a cool-to-warm colour gradient and a tagline.
+The wordmark was generated with pyfiglet's "standard" font and hardcoded here.
+:func:`render` prints it with a cool-to-warm colour gradient and a tagline.
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
 """Write an :class:`~gpsmerge.model.Activity` to a file in a chosen format.
 
-The mirror of :mod:`gpsmerge.read`: one place that maps an output format name to
-a writer. Adding a format is one ``if`` branch plus its ``write_<format>``
-function.
+Dispatch mirrors :mod:`gpsmerge.io.read`: the format table maps an output format
+name to the function that serialises it, and every write goes through
+:func:`_write_atomic` so a failure never leaves a half-written file.
 """
 
 from __future__ import annotations
@@ -13,19 +13,15 @@ from pathlib import Path
 from tempfile import mkstemp
 
 from gpsmerge.errors import UnsupportedFormat
-from gpsmerge.fit import write_fit
-from gpsmerge.gpx import write_gpx
+from gpsmerge.io._registry import _BY_FORMAT
 from gpsmerge.model import Activity
-from gpsmerge.tcx import write_tcx
 
-# Maps an output format to the writer that serialises an Activity to a path.
-# ``fit`` is experimental and needs the optional ``fit-tool`` extra; write_fit
-# raises a clear install hint when it is missing, so registering it here is safe
-# even without the extra installed.
+# Output format -> the writer that serialises an Activity to a path, taken from
+# the format table. ``fit`` needs the optional ``fit-tool`` extra; write_fit
+# loads it lazily on the first write, so registering it here is safe even
+# without the extra installed.
 _WRITERS: dict[str, Callable[[Activity, Path], None]] = {
-    "gpx": write_gpx,
-    "tcx": write_tcx,
-    "fit": write_fit,
+    output_format: fmt.write for output_format, fmt in _BY_FORMAT.items()
 }
 
 
@@ -35,7 +31,7 @@ def write(activity: Activity, path: Path, output_format: str) -> None:
     The activity is serialised to a temporary file in the *same* directory as
     ``path`` and then :func:`os.replace`-d onto it, which is atomic on a single
     filesystem. A crash or error part-way through therefore leaves any existing
-    ``path`` untouched rather than half-overwritten -- the destination either holds
+    ``path`` untouched rather than half-overwritten: the destination either holds
     the previous file or the complete new one, never a truncated mix. The same
     directory matters: a cross-filesystem replace is not atomic, so a temp file in
     the system temp dir would defeat the guarantee.

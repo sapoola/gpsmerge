@@ -1,10 +1,9 @@
 """Check that a set of inputs can actually be merged, before doing any work.
 
 :func:`validate` runs once, after the files are read and before the merge, and
-returns a list of :class:`~gpsmerge.errors.Issue`. An empty list means "go
-ahead". The same list drives both the interactive recovery prompts (later) and
-the non-interactive exit codes, so a problem is explained the same way however
-the tool is run.
+returns a list of :class:`~gpsmerge.errors.Issue`. An empty list means the merge
+can proceed; the same list drives both the interactive recovery prompts and the
+non-interactive exit codes.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ from gpsmerge.errors import (
     Issue,
 )
 from gpsmerge.model import Activity
-from gpsmerge.timeutil import parse_duration, parse_time, parse_timezone
+from gpsmerge.util.timeutil import parse_duration, parse_time, parse_timezone
 
 MIN_INPUTS_TO_MERGE = 2
 
@@ -86,7 +85,7 @@ def _check_gpx_needs_position(
         Issue(
             EXIT_USAGE,
             "these recordings have no GPS position, and GPX cannot store a "
-            "position-less activity (or its distance) -- write TCX instead with "
+            "position-less activity (or its distance); write TCX instead with "
             "--format tcx",
         )
     ]

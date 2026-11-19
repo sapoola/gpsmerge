@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from gpsmerge.alignment import (
+from gpsmerge.merge.alignment import (
     CONFIDENCE_THRESHOLD,
     best_shared_channel,
     detect_clock_offset,

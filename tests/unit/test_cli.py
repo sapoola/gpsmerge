@@ -11,15 +11,15 @@ import pytest
 from typer.testing import CliRunner
 
 from gpsmerge import __version__
-from gpsmerge.cli import app
+from gpsmerge.cli.app import app
 from gpsmerge.errors import (
     EXIT_MODE_CONFLICT,
     EXIT_NO_WORKOUT_DATA,
     EXIT_USAGE,
     EXIT_WRITE,
 )
+from gpsmerge.io.read import read
 from gpsmerge.model import Activity, Segment, TrackPoint
-from gpsmerge.read import read
 
 runner = CliRunner()
 
@@ -31,7 +31,7 @@ def _write_power_gpx(path: Path, *, start_offset: int, levels: list[int]) -> Pat
     appended back-to-back without overlapping. Positions tick along so GPX (which
     needs a position) is valid.
     """
-    from gpsmerge.gpx import write_gpx
+    from gpsmerge.io.gpx import write_gpx
 
     base = datetime(2026, 6, 4, 8, 0, 0, tzinfo=UTC)
     points = [
@@ -601,7 +601,7 @@ def test_run_stack_overlapping_files_writes_output_with_the_donor_channel(
 def test_run_align_clocks_flag_reaches_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import gpsmerge.cli as cli
+    import gpsmerge.cli.app as cli
 
     gps, sensor = _two_overlapping_files(tmp_path)
     output = tmp_path / "out.gpx"
@@ -637,7 +637,7 @@ def test_run_align_clocks_flag_reaches_settings(
 def test_run_align_clocks_defaults_off(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import gpsmerge.cli as cli
+    import gpsmerge.cli.app as cli
 
     gps, sensor = _two_overlapping_files(tmp_path)
     output = tmp_path / "out.gpx"

@@ -16,7 +16,7 @@ from gpsmerge.model import Activity, Segment, TrackPoint
 
 np = pytest.importorskip("numpy", reason="workout detection needs the numpy extra")
 
-from gpsmerge.workout import detect_workout  # noqa: E402
+from gpsmerge.analyze.workout import detect_workout  # noqa: E402
 
 pytestmark = pytest.mark.unit
 

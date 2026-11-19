@@ -9,9 +9,9 @@ import pytest
 
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_MODE_CONFLICT, EXIT_PARSE, EXIT_USAGE
+from gpsmerge.io.write import write
 from gpsmerge.model import Activity, TrackPoint
 from gpsmerge.pipeline import _total_distance, run
-from gpsmerge.write import write
 
 # A tiny GPX with one segment of two points; placeholders are filled per file.
 _GPX_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>

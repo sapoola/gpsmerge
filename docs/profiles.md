@@ -1,6 +1,6 @@
 # Saved profiles
 
-A *profile* is a saved set of the general merge settings -- the ones that do not depend on which files you happen to be merging this time. If you merge the same kind of files the same way every week, a profile lets you save those choices once and reuse them with a single flag.
+A *profile* is a saved set of the general merge settings: the ones that do not depend on which files you happen to be merging this time. If you merge the same kind of files the same way every week, a profile lets you save those choices once and reuse them with a single flag.
 
 ## The problem profiles solve
 
@@ -29,7 +29,7 @@ A profile stores only the file-independent settings: `mode`, `output_format`, `m
 
 ## Reuse a profile
 
-Pass `--profile <name>` and the saved settings apply. You still give the files and the output path -- those are different every time:
+Pass `--profile <name>` and the saved settings apply. You still give the files and the output path, which are different every time:
 
 ```
 gpsmerge run trainer.fit watch.tcx --out ride.tcx --profile trainer

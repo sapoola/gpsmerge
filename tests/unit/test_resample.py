@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gpsmerge.resample import lerp
+from gpsmerge.util.resample import lerp
 
 
 @pytest.mark.unit

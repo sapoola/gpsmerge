@@ -1,7 +1,7 @@
 """Command-line entry point for gpsmerge.
 
 Bare ``gpsmerge`` in a terminal launches the guided wizard (see
-:mod:`gpsmerge.wizard`); piped or in CI it prints a hint instead, so
+:mod:`gpsmerge.cli.wizard`); piped or in CI it prints a hint instead, so
 non-interactive use never hangs. The ``run`` command merges files
 non-interactively: every flag maps onto a single
 :class:`~gpsmerge.config.Settings`, the pipeline does the work, and this module
@@ -20,13 +20,14 @@ import typer
 from pydantic import ValidationError
 from rich.console import Console
 
-from gpsmerge import __version__, profiles, wizard
+from gpsmerge import __version__, profiles
+from gpsmerge.cli import wizard
 from gpsmerge.config import Settings
 from gpsmerge.errors import EXIT_USAGE
-from gpsmerge.geo import parse_distance
 from gpsmerge.pipeline import RunResult
 from gpsmerge.pipeline import run as run_pipeline
-from gpsmerge.timeutil import local_range, utc_range, zone_label
+from gpsmerge.util.geo import parse_distance
+from gpsmerge.util.timeutil import local_range, utc_range, zone_label
 
 app = typer.Typer(
     name="gpsmerge",
@@ -34,11 +35,10 @@ app = typer.Typer(
     add_completion=False,
 )
 
-# Route coloured output through rich rather than typer.secho. A rich Console
-# honours the NO_COLOR and FORCE_COLOR environment variables on its own, so the
-# decision to emit ANSI lives in one place instead of at every call site. Two
-# consoles keep the existing stdout/stderr split: errors and the no-output hint
-# go to stderr, the preview and its warnings go to stdout.
+# Route coloured output through rich rather than typer.secho: a rich Console
+# honours the NO_COLOR and FORCE_COLOR environment variables on its own. Two
+# consoles keep the stdout/stderr split: errors and the no-output hint go to
+# stderr, the preview and its warnings go to stdout.
 _err_console = Console(stderr=True)
 _out_console = Console()
 
@@ -116,7 +116,7 @@ def main_callback(
     if ctx.invoked_subcommand is not None:
         return
     # In a terminal, bare 'gpsmerge' is the headline experience: the wizard.
-    # Piped or in CI (no TTY), never block on prompts -- just point the way.
+    # Piped or in CI (no TTY), never block on prompts; just point the way.
     if sys.stdin.isatty():
         raise typer.Exit(wizard.run())
     typer.echo(
@@ -435,8 +435,8 @@ def run(
         raise typer.Exit(EXIT_USAGE) from exc
 
     result = run_pipeline(settings)
-    # When no --out was given (dry run only), there is no real path to report --
-    # drop the placeholder so the preview shows "(dry run, no file written)".
+    # When no --out was given (dry run only), there is no real path to report,
+    # so drop the placeholder and the preview shows "(dry run, no file written)".
     if output is None:
         result.output = None
     _report(result, json_output)
@@ -484,7 +484,7 @@ def _chosen_profile(
     """Return the settings worth saving: the ones the user actually chose.
 
     Only keys whose flag was typed on the command line, or that came from a
-    loaded ``--profile``, are saved -- untouched defaults are left out, so a
+    loaded ``--profile``, are saved. Untouched defaults are left out, so a
     profile captures intent (e.g. "TCX in Amsterdam time"), not the whole config.
 
     Parameters

@@ -70,7 +70,7 @@ dev = [
 ]
 
 [project.scripts]
-gpsmerge = "gpsmerge.cli:main"
+gpsmerge = "gpsmerge.cli.app:main"
 
 [tool.poetry]
 packages = [{ include = "gpsmerge", from = "src" }]

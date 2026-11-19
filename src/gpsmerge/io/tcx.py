@@ -7,7 +7,7 @@ trackpoints live inside a lap under a ``<Track>``. A file may also hold several
 do not model laps yet, so on read we flatten every lap's tracks (across every
 activity) into one segment list, and on write we emit a single lap whose tracks
 are our segments. Each ``<Track>`` is one continuous run of recording, so the gap
-between two tracks is a pause -- exactly our
+between two tracks is a pause, which is exactly our
 :class:`~gpsmerge.model.Segment` boundary.
 
 TCX is untrusted input, so it is parsed with a hardened lxml parser
@@ -33,9 +33,9 @@ from pathlib import Path
 
 from lxml import etree
 
-from gpsmerge.geo import cumulative_distance
 from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
-from gpsmerge.timeutil import parse_time
+from gpsmerge.util.geo import cumulative_distance
+from gpsmerge.util.timeutil import parse_time
 
 # A hardened parser for untrusted input. lxml's default parser resolves entities
 # and can be steered into reading local files (XXE) or expanding a nested-entity
@@ -44,7 +44,7 @@ from gpsmerge.timeutil import parse_time
 _PARSER = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
 
 # Garmin namespaces, written exactly as Garmin Training Center produces them.
-# IMPORTANT: these are XML *namespace identifiers*, not URLs to fetch -- a browser
+# IMPORTANT: these are XML *namespace identifiers*, not URLs to fetch. A browser
 # 404 on them is expected and irrelevant. They must match these exact strings or
 # real TCX files stop being recognised. (The downloadable schema lives separately
 # at https://www8.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd, which is a
@@ -111,8 +111,8 @@ SOURCE_FORMAT = "tcx"
 def read_tcx(path: Path) -> Activity:
     """Parse a TCX file into the canonical :class:`Activity`.
 
-    Every ``<Activity>`` is read -- multisport and Training Center files can hold
-    several. Each one's ``<Track>`` elements (across all its laps, in order)
+    Every ``<Activity>`` is read, since multisport and Training Center files can
+    hold several. Each one's ``<Track>`` elements (across all its laps, in order)
     become :class:`Segment` objects, and they are concatenated in document order.
     Each ``<Lap>`` becomes a boundaries-only :class:`Lap` (start time, end time
     from ``TotalTimeSeconds`` when present, and the mapped trigger); laps are
@@ -186,8 +186,8 @@ def _read_lap(lap_el: etree._Element) -> Lap:
     The ``StartTime`` attribute gives the start; ``end_time`` is the start plus
     ``TotalTimeSeconds`` when that child is present, else ``None``. The trigger is
     the mapped ``<TriggerMethod>``, or ``None`` when absent or unrecognised. Only
-    the span and trigger are kept -- the lap's own summary totals are recomputed
-    from its points on write, so we deliberately ignore them here.
+    the span and trigger are kept: the lap's own summary totals are recomputed
+    from its points on write, so we ignore them here.
     """
     # StartTime is mandatory in the TCX schema; fall back to the epoch only so a
     # malformed lap without it still parses rather than crashing the whole read.
@@ -327,7 +327,7 @@ def write_tcx(activity: Activity, path: Path) -> None:
     points rather than trusting any stored value, so they cannot go stale.
 
     Trackpoint children are written in TCX schema order, and only for channels
-    that are not ``None`` -- a missing channel is omitted, never written as
+    that are not ``None``: a missing channel is omitted, never written as
     ``0``. A non-finite value (NaN or infinity) is treated as absent for the same
     reason. A point with only one of latitude/longitude still gets a
     ``<Position>`` carrying the coordinate it has, so a lone coordinate is not
@@ -335,10 +335,11 @@ def write_tcx(activity: Activity, path: Path) -> None:
     precision so sub-second points survive.
 
     Two kinds of data cannot survive a TCX round-trip and are intentionally not
-    written: per-point **temperature** -- TCX has no temperature field anywhere in
-    its schema, so ``temp`` is dropped and reads back as ``None``; and the
+    written. Per-point **temperature** is dropped because TCX has no temperature
+    field anywhere in its schema, so ``temp`` reads back as ``None``. The
     structured :class:`Device` identity beyond name, product, and serial number
-    (manufacturer and software version have no place in the TCX ``<Creator>``).
+    is also dropped (manufacturer and software version have no place in the TCX
+    ``<Creator>``).
     Within laps, only the **span and trigger** round-trip: a lap's ``<Calories>``
     and ``<Intensity>`` are written as fixed placeholders and are not retained on
     read.
@@ -391,7 +392,7 @@ def _trigger_to_tcx(trigger: str | None) -> str:
     """Map our lap trigger to a TCX ``<TriggerMethod>``, defaulting to Manual.
 
     TCX has no name for ``"session_end"`` (or any trigger we do not recognise),
-    so it falls back to ``"Manual"`` -- the schema's safe default.
+    so it falls back to ``"Manual"``, the schema's safe default.
     """
     if trigger is None:
         return _DEFAULT_TRIGGER_TCX
@@ -462,7 +463,7 @@ def _write_lap(
     intensity, trigger method, then the tracks. `points` is non-empty (empty laps
     are skipped by the caller). `segment_index` maps a point's ``id`` to the
     index of its source segment, so the points split into a new ``<Track>``
-    wherever that index changes -- preserving pauses inside the lap.
+    wherever that index changes, preserving pauses inside the lap.
     """
     lap_el = etree.SubElement(activity_el, _qualified(TCX_NS, "Lap"))
     lap_el.set("StartTime", _format_time(lap.start_time))
@@ -695,7 +696,7 @@ def _finite(value: float | None) -> float | None:
 
     A NaN or infinity would serialise to the literal ``"nan"``/``"inf"``, which
     is invalid against the TCX schema, so we treat any non-finite value as an
-    absent channel -- the same as ``None``.
+    absent channel, the same as ``None``.
     """
     if value is None or not math.isfinite(value):
         return None

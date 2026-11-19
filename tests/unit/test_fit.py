@@ -28,8 +28,8 @@ from fit_tool.profile.profile_type import (
     Sport,
 )
 
-from gpsmerge.fit import read_fit
-from gpsmerge.gpx import read_gpx, write_gpx
+from gpsmerge.io.fit import read_fit
+from gpsmerge.io.gpx import read_gpx, write_gpx
 
 _BASE = datetime.datetime(2026, 6, 3, 12, 0, 0, tzinfo=datetime.timezone.utc)
 
@@ -411,7 +411,7 @@ def _lap(start_seconds: int, end_seconds: int, trigger: LapTrigger) -> LapMessag
 
 @pytest.mark.unit
 def test_device_name_tidies_manufacturer_and_drops_a_numeric_product() -> None:
-    from gpsmerge.fit import _device_name
+    from gpsmerge.io.fit import _device_name
 
     # A mapped product keeps its (tidied) name; a bare numeric id is dropped.
     assert _device_name("garmin", "edge_530") == "Garmin Edge 530"

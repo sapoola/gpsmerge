@@ -38,7 +38,7 @@ gpsmerge run a.gpx b.gpx --out ride.gpx --insert-stopped-time --stopped-time-thr
 
 ## Re-lap into even distance splits
 
-`--auto-lap <distance>` re-laps the merged activity into even distance splits — a fresh lap every kilometre, mile, or whatever distance you give. It *replaces* whatever laps the source files carried; this is a re-lap, not an addition. The distance is `1km`, `500m`, `0.5mi`, `1mi`, or a bare number of metres like `1000`.
+`--auto-lap <distance>` re-laps the merged activity into even distance splits: a fresh lap every kilometre, mile, or whatever distance you give. It *replaces* whatever laps the source files carried; this is a re-lap, not an addition. The distance is `1km`, `500m`, `0.5mi`, `1mi`, or a bare number of metres like `1000`.
 
 Each lap closes the moment the running distance crosses the next multiple of the interval, so the boundaries land on the kilometre (or mile) marks. The completed laps are tagged with the `distance` trigger; the leftover past the last whole interval becomes a final `session_end` lap. An activity shorter than one interval is a single whole-activity lap.
 
@@ -48,8 +48,8 @@ Distance is read from the recorded distance channel when every point carries it 
 gpsmerge run a.gpx b.gpx --out ride.tcx --format tcx --auto-lap 1km
 ```
 
-Laps are written to TCX and FIT. **GPX has no lap concept, so laps are dropped when writing GPX** — write TCX (or experimental FIT) to keep the splits.
+Laps are written to TCX and FIT. **GPX has no lap concept, so laps are dropped when writing GPX**: write TCX (or experimental FIT) to keep the splits.
 
 ## Detect a structured workout (BETA)
 
-`--detect-workout` (BETA) is the other transform that sets the laps: instead of even distance splits, it auto-detects the interval structure hidden in the activity's effort channel — power for rides, speed for runs, chosen automatically — and writes each held effort as a lap, plus a one-line summary. A step counts only when the level shifts by at least 15% of the ride's *own* average effort, so the threshold self-calibrates to easy and hard rides alike with no FTP and no tuning. It needs the `workout` extra (`pip install 'gpsmerge[workout]'`) and is mutually exclusive with `--auto-lap` (both set the laps). See `docs/workout-detection.md` for the full story.
+`--detect-workout` (BETA) is the other transform that sets the laps: instead of even distance splits, it auto-detects the interval structure hidden in the activity's effort channel (power for rides, speed for runs, chosen automatically) and writes each held effort as a lap, plus a one-line summary. A step counts only when the level shifts by at least 15% of the ride's *own* average effort, so the threshold self-calibrates to easy and hard rides alike with no FTP and no tuning. It needs the `workout` extra (`pip install 'gpsmerge[workout]'`) and is mutually exclusive with `--auto-lap` (both set the laps). See `docs/workout-detection.md` for the full story.

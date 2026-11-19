@@ -17,9 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from gpsmerge import gpx, tcx
+from gpsmerge.io import gpx, tcx
+from gpsmerge.io.read import read
 from gpsmerge.model import Activity, Device, Segment, TrackPoint
-from gpsmerge.read import read
 
 # The canonical namespace strings, verified against Garmin's published schemas.
 GPX_1_1_NS = "http://www.topografix.com/GPX/1/1"

@@ -15,8 +15,8 @@ from typing import Any
 
 import pytest
 
-from gpsmerge import wizard
-from gpsmerge.read import read
+from gpsmerge.cli import wizard
+from gpsmerge.io.read import read
 
 # A two-point GPX with one segment; placeholders are filled per file.
 _GPX_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -519,7 +519,7 @@ def _write_power_gpx(path: Path, *, start_offset: int, level: int, count: int) -
     """Write a sequential, position-carrying GPX with a constant power level."""
     from datetime import UTC, datetime, timedelta
 
-    from gpsmerge.gpx import write_gpx
+    from gpsmerge.io.gpx import write_gpx
     from gpsmerge.model import Activity, Segment, TrackPoint
 
     base = datetime(2026, 6, 4, 8, 0, 0, tzinfo=UTC)

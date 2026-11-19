@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from gpsmerge.gpx import read_gpx, write_gpx
+from gpsmerge.io.gpx import read_gpx, write_gpx
 from gpsmerge.model import Activity, Device, Segment, TrackPoint
 
 

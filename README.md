@@ -1,11 +1,11 @@
 # gpsmerge
 
-Merge GPX, TCX, and FIT activity files into one clean file — entirely on your own machine. No upload, no account, no network.
+Merge GPX, TCX, and FIT activity files into one clean file, entirely on your own machine. No upload, no account, no network.
 
 `gpsmerge` is an offline, local-first reimplementation of the file-merging part of [gotoes.org](https://gotoes.org/tools/merge-gps-files). It does the two things people actually need:
 
-- **Stack** two recordings of the *same* ride and take a different sensor from each — GPS from your watch, power from your trainer, heart rate from a chest strap.
-- **Append** two *sequential* recordings into one continuous activity — your bike computer died mid-ride and you finished on your phone.
+- **Stack** two recordings of the *same* ride and take a different sensor from each: GPS from your watch, power from your trainer, heart rate from a chest strap.
+- **Append** two *sequential* recordings into one continuous activity, for when your bike computer died mid-ride and you finished on your phone.
 
 Run it with no arguments for a guided wizard, or pass flags for scripting.
 
@@ -53,8 +53,8 @@ The gotoes.org tool is excellent but it is a web service: you upload files that 
 
 ## Documentation
 
-Plain-language concept docs live in [`docs/`](docs/) — start with [`docs/concepts.md`](docs/concepts.md) for what "stack" and "append" mean.
+Plain-language concept docs live in [`docs/`](docs/). Start with [`docs/concepts.md`](docs/concepts.md) for what "stack" and "append" mean.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

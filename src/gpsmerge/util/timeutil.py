@@ -2,7 +2,7 @@
 
 Pure stdlib (no model import). Most functions speak in timezone-aware UTC
 datetimes, matching the model's rule that all timestamps are UTC. Naive input is
-assumed to already be UTC -- the file formats we read either state UTC explicitly
+assumed to already be UTC: the file formats we read either state UTC explicitly
 or, when they omit a zone, mean UTC. The formatting helpers at the bottom render
 times for the command line and the wizard, which both show the same preview.
 """
@@ -129,7 +129,7 @@ def parse_timezone(spec: str) -> tzinfo:
     ``"-05:30"``, ``"0"``, ``"UTC"``, ``"Z"``) becomes a constant
     :class:`~datetime.timezone`. An IANA zone name (``"Europe/Amsterdam"``,
     ``"America/New_York"``) becomes a :class:`~zoneinfo.ZoneInfo`, which
-    auto-resolves summer time / DST for whatever date it is applied to -- so the
+    auto-resolves summer time / DST for whatever date it is applied to, so the
     same name shows the correct offset in winter and in summer. This is
     display-only: it never changes the merged file's timestamps, which stay UTC.
 

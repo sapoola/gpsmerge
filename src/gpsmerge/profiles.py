@@ -1,6 +1,6 @@
 """Saved, file-independent merge settings the user can name and reuse.
 
-A *profile* is a small TOML file holding the general options of a merge -- the
+A *profile* is a small TOML file holding the general options of a merge: the
 ones that do not depend on which files you happen to be merging this time, such
 as the mode, the output format, and the timezone. The motivating case is a user
 who merges a trainer FIT and a watch TCX the same way every week: saving those
@@ -8,12 +8,8 @@ choices once as ``trainer`` turns a long command into ``--profile trainer``.
 
 Profiles live under the platform config dir (``profiles_dir``), one ``.toml``
 file per profile. Only the keys in :data:`SAVEABLE_KEYS` are ever stored, and
-only when their value is not ``None`` -- TOML has no null, and a ``None`` simply
+only when their value is not ``None``. TOML has no null, and a ``None`` simply
 means "fall back to the default", which a saved profile should not pin.
-
-The module is deliberately a handful of plain functions over that directory:
-there is no profile object or registry, because a name and a dict are all a
-profile is.
 """
 
 from __future__ import annotations

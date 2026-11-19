@@ -1,12 +1,8 @@
 """The settings object that describes one merge.
 
 Everything the wizard collects or the command-line flags set ends up in a single
-:class:`Settings` instance, which the pipeline reads. Keeping one validated
-object means the interactive and scripted paths share exactly the same inputs,
-and there is one obvious place to see every option a merge takes.
-
-The model grows with the tool. Today it carries what appending needs; stacking
-options arrive with stacking.
+:class:`Settings` instance, which the pipeline reads, so the interactive and
+scripted paths share exactly the same inputs.
 """
 
 from __future__ import annotations
@@ -78,11 +74,11 @@ class Settings(BaseModel):
         A signed duration to add to every timestamp after merging, to correct a
         wrong device clock (e.g. ``"+1h"``, ``"-30m"``, ``"+1:30:00"``). Kept as
         the raw spec so validation can report a clean parse error; see
-        :func:`gpsmerge.timeutil.parse_duration`.
+        :func:`gpsmerge.util.timeutil.parse_duration`.
     trim_start, trim_end : str or None
         ISO timestamps bounding which points to keep after merging; an open bound
         is unbounded on that side. Kept raw so a bad value is a clean validation
-        error rather than a crash; see :func:`gpsmerge.timeutil.parse_time`.
+        error rather than a crash; see :func:`gpsmerge.util.timeutil.parse_time`.
     smooth_elevation : int or None
         If set, the window width for the centred moving average that smooths
         elevation. Must be an odd integer at least 3 (validation enforces this).
@@ -95,7 +91,7 @@ class Settings(BaseModel):
     auto_lap_m : float or None
         If set, re-lap the merged activity into even distance splits of this many
         metres (a lap every 1 km, say), replacing any source laps. Parsed from a
-        spec like ``"1km"`` or ``"0.5mi"`` by :func:`gpsmerge.geo.parse_distance`
+        spec like ``"1km"`` or ``"0.5mi"`` by :func:`gpsmerge.util.geo.parse_distance`
         and stored as metres. ``None`` leaves the source laps untouched.
     detect_workout : bool
         Auto-detect a structured interval workout from the merged activity's

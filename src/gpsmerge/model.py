@@ -1,20 +1,16 @@
 """The canonical data model that every file format converts to and from.
 
 Parsers (``read_gpx``, ``read_tcx``, ``read_fit``) turn a file into an
-:class:`Activity`. The merge functions operate only on :class:`Activity`. Writers
-turn an :class:`Activity` back into a file. Keeping one small model in the middle
-means we write N readers and N writers, not N x N pairwise converters.
+:class:`Activity`; the merge functions operate only on :class:`Activity`; writers
+turn an :class:`Activity` back into a file.
 
 Two rules hold everywhere in this model and are relied on by the merge logic:
 
-- An absent value is ``None`` -- never ``0`` and never a sentinel. A missing heart
+- An absent value is ``None``, never ``0`` and never a sentinel. A missing heart
   rate is ``None``, not ``0`` bpm.
 - Every timestamp is timezone-aware UTC.
 
-The model is deliberately minimal. Laps are a boundaries-only overlay (see
-:class:`Lap`); route waypoints, GPS accuracy, and arbitrary device-specific fields
-are still left out on purpose and added when a milestone actually requires them,
-rather than modelled speculatively. See ``docs/data-model.md``.
+Laps are a boundaries-only overlay (see :class:`Lap`). See ``docs/data-model.md``.
 """
 
 from __future__ import annotations
@@ -46,7 +42,7 @@ class TrackPoint:
     hr : int or None
         Heart rate in beats per minute.
     cad : int or None
-        Cadence -- revolutions per minute (cycling) or steps per minute (running).
+        Cadence: revolutions per minute (cycling) or steps per minute (running).
     power : int or None
         Power in watts.
     temp : float or None
@@ -71,8 +67,8 @@ class TrackPoint:
 class Segment:
     """One continuous run of recording.
 
-    A new segment starts wherever recording paused -- a stop light, a coffee stop,
-    or a device that was turned off and on again. Keeping pauses as segment
+    A new segment starts wherever recording paused (a stop light, a coffee stop,
+    or a device that was turned off and on again). Keeping pauses as segment
     boundaries is what lets the writers tell moving time from elapsed time. A
     segment maps to a GPX ``<trkseg>``.
     """
@@ -82,7 +78,7 @@ class Segment:
 
 @dataclass(slots=True)
 class Lap:
-    """A labelled span of an activity -- an interval or an auto-lap.
+    """A labelled span of an activity: an interval or an auto-lap.
 
     A lap is an overlay on the timeline, kept separate from segment (pause)
     boundaries: one continuous segment can hold many laps, and a pause is not
