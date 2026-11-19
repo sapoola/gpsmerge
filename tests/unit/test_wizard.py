@@ -578,3 +578,11 @@ def test_wizard_offers_workout_detection_when_power_is_present(
     assert seen and all(seen)
     written = read(output)
     assert len(written.laps) >= 2
+
+
+@pytest.mark.unit
+def test_clean_path_unwraps_drag_and_drop_forms() -> None:
+    assert wizard._clean_path("'/a b/c.fit'") == "/a b/c.fit"
+    assert wizard._clean_path(r"/a\ b/c.fit") == "/a b/c.fit"
+    assert wizard._clean_path("/a b/c.fit") == "/a b/c.fit"  # unquoted spaces kept
+    assert wizard._clean_path("/it's/c.fit") == "/it's/c.fit"  # unbalanced quote
