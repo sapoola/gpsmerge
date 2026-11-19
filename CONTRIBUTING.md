@@ -11,17 +11,17 @@ The most important rule in this codebase: **write the boring, obvious version**.
 Before you push, all of these must be clean:
 
 ```bash
-poetry run black --check .
-poetry run isort --check-only .
-poetry run ruff check .
-poetry run mypy src
-poetry run pytest
+uv run black --check .
+uv run isort --check-only .
+uv run ruff check .
+uv run mypy src
+uv run pytest
 ```
 
 Install the git hooks once so the first four run automatically on every commit:
 
 ```bash
-poetry run pre-commit install
+uv run pre-commit install
 ```
 
 To report a security issue, see [`SECURITY.md`](SECURITY.md) instead of opening a public issue.

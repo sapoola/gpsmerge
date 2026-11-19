@@ -23,7 +23,7 @@ dependencies:
   - changed-files:
       - any-glob-to-any-file:
           - "pyproject.toml"
-          - "poetry.lock"
+          - "uv.lock"
 
 core:
   - changed-files:

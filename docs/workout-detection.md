@@ -2,7 +2,7 @@
 
 `--detect-workout` looks at a merged activity, recovers the structured interval workout hidden in its effort trace, and writes that structure back as laps plus a short summary line. It is a best-effort heuristic, shipped as **BETA**: it shines on structured indoor and interval sessions and is honest about where it struggles. Treat the laps it produces as a good first guess, not gospel, and glance at them before relying on them.
 
-It needs the optional `workout` extra (numpy): `pip install 'gpsmerge[workout]'` (or `poetry install --extras workout`). The core install stays numpy-free; the extra is only pulled in when you actually detect a workout.
+It needs the optional `workout` extra (numpy): `pip install 'gpsmerge[workout]'` (or `uv sync --extra workout`). The core install stays numpy-free; the extra is only pulled in when you actually detect a workout.
 
 ## What it does
 

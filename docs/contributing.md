@@ -2,17 +2,21 @@
 
 ## Setup
 
-This project uses [Poetry](https://python-poetry.org/). To get a working environment:
+This project uses [uv](https://docs.astral.sh/uv/) (build backend: `uv_build`). To get a working environment:
 
 ```bash
-poetry install
-poetry run gpsmerge --version
+uv sync
+uv run gpsmerge --version
 ```
+
+You need uv 0.13.9 or newer (`uv self update`, or `brew upgrade uv`); older releases cannot build the sdist and `pyproject.toml` says so up front.
+
+`uv sync` installs the project, its dev tools and the test dependencies into `.venv`, exactly as pinned in `uv.lock`. Commit `uv.lock` whenever you change a dependency (`uv add`, `uv remove`, or `uv lock` after editing `pyproject.toml`).
 
 Install the git hooks once so the formatter and linters run on every commit:
 
 ```bash
-poetry run pre-commit install
+uv run pre-commit install
 ```
 
 ## The quality bar
@@ -20,14 +24,14 @@ poetry run pre-commit install
 Before you push, all of these must be clean:
 
 ```bash
-poetry run black --check .
-poetry run isort --check-only .
-poetry run ruff check .
-poetry run mypy src
-poetry run pytest
+uv run black --check .
+uv run isort --check-only .
+uv run ruff check .
+uv run mypy src
+uv run pytest
 ```
 
-(`poetry run pre-commit run --all-files` runs the first four for you.)
+(`uv run pre-commit run --all-files` runs the first four for you.)
 
 ## The simplicity rule
 

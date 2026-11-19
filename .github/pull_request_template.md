@@ -28,7 +28,7 @@ dependencies) are applied automatically from the files you touched.
 
 ## Checklist
 
-- [ ] `poetry run pytest` passes
+- [ ] `uv run pytest` passes
 - [ ] `black`, `isort`, `ruff`, and `mypy src` are clean (or `pre-commit run --all-files`)
 - [ ] Docs updated (`docs/`, `README.md`) if behaviour changed
 - [ ] `CHANGELOG.md` updated under `[Unreleased]` for any user-facing change
