@@ -14,9 +14,9 @@ prompt returns a usage exit code instead of a stack trace.
 
 from __future__ import annotations
 
-import shlex
 from datetime import datetime
 from pathlib import Path
+import shlex
 
 import questionary
 from rich.console import Console

@@ -1,0 +1,26 @@
+name: PR labeler
+
+# Applies path-based area labels (see .github/labeler.yml) to pull requests.
+#
+# Uses pull_request_target so the run has a pull-requests:write token and reads
+# the label rules from the base branch. The labeler only inspects the list of
+# changed files via the API — it never checks out or executes PR code — so this
+# is safe to run on pull requests from outside contributors.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: labeler-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/labeler@f27b608878404679385c85cfa523b85ccb86e213 # v6.1.0
