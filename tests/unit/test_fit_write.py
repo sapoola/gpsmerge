@@ -265,3 +265,28 @@ def test_write_fit_raises_a_helpful_error_when_fit_tool_is_missing(
 
     with pytest.raises(RuntimeError, match=r"gpsmerge\[fit\]"):
         write_fit(_sample_activity(), tmp_path / "out.fit")
+
+
+@pytest.mark.unit
+def test_utc_offset_is_written_as_the_local_timestamp(tmp_path: Path) -> None:
+    import fitdecode
+
+    def local_minus_utc(offset: timedelta | None) -> timedelta | None:
+        activity = _sample_activity()
+        activity.utc_offset = offset
+        path = tmp_path / "ride.fit"
+        write_fit(activity, path)
+        with fitdecode.FitReader(str(path)) as reader:
+            for frame in reader:
+                if (
+                    isinstance(frame, fitdecode.FitDataMessage)
+                    and frame.name == "activity"
+                    and frame.has_field("local_timestamp")
+                ):
+                    return frame.get_value("local_timestamp") - frame.get_value(
+                        "timestamp"
+                    )
+        return None
+
+    assert local_minus_utc(timedelta(hours=1)) == timedelta(hours=1)
+    assert local_minus_utc(None) is None

@@ -10,7 +10,7 @@ print the issues, or print the preview, and exit.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from gpsmerge.analyze.transforms import (
@@ -168,6 +168,7 @@ def run(settings: Settings) -> RunResult:
         )
 
     preview = _build_preview(merged, settings.timezone, workout_summary)
+    merged = replace(merged, utc_offset=_utc_offset(preview))
 
     if settings.dry_run:
         return RunResult(
@@ -306,6 +307,13 @@ def _local_span(
     except ValueError:
         return None, None
     return start.astimezone(zone), end.astimezone(zone)
+
+
+def _utc_offset(preview: Preview) -> timedelta | None:
+    """Return the chosen zone's offset at the activity start, or ``None`` if unset."""
+    if preview.local_start is None:
+        return None
+    return preview.local_start.utcoffset()
 
 
 def _moving_seconds(activity: Activity) -> float:

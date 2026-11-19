@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 @dataclass(slots=True)
@@ -154,6 +154,10 @@ class Activity:
         Path the activity was read from, for messages and defaults.
     source_format : str or None
         One of ``"gpx"``, ``"tcx"``, ``"fit"``.
+    utc_offset : timedelta or None
+        Local time minus UTC for where the activity was recorded, when the user
+        named a timezone. Only FIT can store it (as the activity's local
+        timestamp); GPX and TCX have nowhere to put it. Timestamps stay UTC.
     """
 
     sport: str | None = None
@@ -164,6 +168,7 @@ class Activity:
     time_created: datetime | None = None
     source_path: str | None = None
     source_format: str | None = None
+    utc_offset: timedelta | None = None
 
     def points(self) -> Iterator[TrackPoint]:
         """Iterate every track point across all segments, in recorded order.

@@ -34,6 +34,7 @@ import fitdecode
 from gpsmerge.errors import WriteError
 from gpsmerge.model import Activity, Device, Lap, Segment, TrackPoint
 from gpsmerge.util.geo import semicircles_to_degrees
+from gpsmerge.util.timeutil import utc_to_fit_timestamp
 
 SOURCE_FORMAT = "fit"
 
@@ -770,6 +771,12 @@ def _build_activity(activity: Activity, fit: _FitTool) -> object:
     message = fit.ActivityMessage()
     if end is not None:
         message.timestamp = _to_millis(end)
+        if activity.utc_offset is not None:
+            # Strava and Garmin Connect read local time from this field, in FIT
+            # seconds (not milliseconds like timestamp).
+            message.local_timestamp = utc_to_fit_timestamp(end) + int(
+                activity.utc_offset.total_seconds()
+            )
     message.num_sessions = 1
     message.total_timer_time = _moving_seconds(activity)
     return message
