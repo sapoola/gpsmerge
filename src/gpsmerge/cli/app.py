@@ -236,9 +236,10 @@ def run(
     timezone: str | None = typer.Option(
         None,
         "--timezone",
-        help="Show the preview's times in this zone (display only; the file "
-        "stays UTC). An IANA name like 'Europe/Amsterdam' (auto-handles summer "
-        "time) or a fixed offset like '+02:00'.",
+        help="Show the preview's times in this zone. FIT output also records it "
+        "as the activity's local time (GPX/TCX stay UTC and cannot). An IANA "
+        "name like 'Europe/Amsterdam' (auto-handles summer time) or a fixed "
+        "offset like '+02:00'.",
         rich_help_panel="Transforms",
     ),
     shift: str | None = typer.Option(

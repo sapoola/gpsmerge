@@ -66,10 +66,11 @@ class Settings(BaseModel):
     json_output : bool
         Print a machine-readable summary instead of the human preview.
     timezone : str or None
-        The raw timezone spec for the preview only (an IANA name such as
-        ``"Europe/Amsterdam"`` or a fixed offset such as ``"+02:00"``). It makes
-        the preview and JSON show local times so the user can sanity-check; the
-        merged file's timestamps always stay UTC.
+        The raw timezone spec (an IANA name such as ``"Europe/Amsterdam"`` or a
+        fixed offset such as ``"+02:00"``). It makes the preview and JSON show
+        local times so the user can sanity-check, and a FIT output records it as
+        the activity's local time (what Strava reads). The merged file's
+        timestamps always stay UTC.
     shift : str or None
         A signed duration to add to every timestamp after merging, to correct a
         wrong device clock (e.g. ``"+1h"``, ``"-30m"``, ``"+1:30:00"``). Kept as

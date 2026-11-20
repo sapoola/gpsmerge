@@ -543,8 +543,8 @@ class Wizard:
     def _ask_timezone(self) -> str | None:
         """Ask which timezone to show the preview's times in, defaulting to UTC only.
 
-        Display-only: it changes the preview, never the written file's timestamps.
-        A blank answer keeps the preview in UTC.
+        It changes the preview and, for FIT output, the file's local-time field;
+        the written timestamps always stay UTC. A blank answer keeps UTC.
 
         Returns
         -------
@@ -554,8 +554,9 @@ class Wizard:
         answer = str(
             _ask(
                 questionary.text(
-                    "Want the preview in your local time? Type a timezone "
-                    "(e.g. Europe/Amsterdam or +02:00), or Enter to keep UTC",
+                    "Want your local time? Type a timezone (e.g. Europe/Amsterdam). "
+                    "It's shown in the preview, and FIT files keep it so Strava "
+                    "shows the right start time. Enter to keep UTC",
                     default="",
                 )
             )
