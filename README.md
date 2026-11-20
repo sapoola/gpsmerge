@@ -15,20 +15,20 @@ Working and usable, ahead of a first published release. gpsmerge reads GPX, TCX,
 
 ## Install
 
-Not yet published to a package index, so the current way to run it is from a local checkout with Poetry:
+Not yet published to a package index, so the current way to run it is from a local checkout with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-poetry install
-poetry run gpsmerge            # the guided wizard
-poetry run gpsmerge --version
-poetry run gpsmerge run --help
+uv sync
+uv run gpsmerge            # the guided wizard
+uv run gpsmerge --version
+uv run gpsmerge run --help
 ```
 
-Once published, the intended install paths are `pipx install gpsmerge`, `uv tool install gpsmerge`, and a Homebrew tap (`brew tap <owner>/gpsmerge && brew install gpsmerge`). Until then, prefer the `poetry run gpsmerge` path above.
+Once published, the intended install paths are `uv tool install gpsmerge`, `pipx install gpsmerge`, and a Homebrew tap (`brew tap <owner>/gpsmerge && brew install gpsmerge`). Until then, prefer the `uv run gpsmerge` path above.
 
 ## Quick start
 
-Run `gpsmerge` with no arguments for the guided wizard, which detects whether your files stack or append, shows a preview, and writes only once you confirm. To merge directly, use `gpsmerge run` (the examples below assume the tool is on your `PATH`; from a checkout, prefix each with `poetry run`):
+Run `gpsmerge` with no arguments for the guided wizard, which detects whether your files stack or append, shows a preview, and writes only once you confirm. To merge directly, use `gpsmerge run` (the examples below assume the tool is on your `PATH`; from a checkout, prefix each with `uv run`):
 
 ```bash
 # Append: a ride split across two recordings, into one GPX

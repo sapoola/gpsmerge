@@ -105,7 +105,7 @@ _MILLISECONDS_PER_SECOND = 1000
 _FIT_TOOL_MISSING = (
     "writing FIT needs the optional 'fit-tool' dependency, which is not "
     "installed. Install it with: pip install 'gpsmerge[fit]' "
-    "(or: poetry install --extras fit)"
+    "(or: uv sync --extra fit)"
 )
 
 

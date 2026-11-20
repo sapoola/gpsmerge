@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Changed
+
+- Packaging and tooling moved from Poetry to uv: `uv_build` build backend, `uv.lock` (resolved to the same versions as the old `poetry.lock`), `uv sync` / `uv run` in CI, pre-commit, and the contributor docs.
+
 ### Added
 
 - Project scaffold: Poetry packaging, `src/` layout, MIT license, linting and type-checking (black, isort, ruff, mypy), pytest setup, CI on Python 3.11–3.14, and a `gpsmerge --version` entry point.

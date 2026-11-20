@@ -469,7 +469,7 @@ def _load_numpy() -> Any:
         raise RuntimeError(
             "detecting a workout needs the optional 'numpy' dependency, which is "
             "not installed. Install it with: pip install 'gpsmerge[workout]' "
-            "(or: poetry install --extras workout)"
+            "(or: uv sync --extra workout)"
         ) from exc
 
 
