@@ -110,7 +110,7 @@ class Wizard:
             device_from = self._ask_device(paths, activities)
 
             self._section("Step 5: output options", "⚙️")
-            output_format = self._ask_output_format()
+            output_format = self._ask_output_format(activities)
             timezone = self._ask_timezone()
             sport = self._ask_sport()
             # The workout offer and the auto-lap offer both set the laps, so they
@@ -499,27 +499,37 @@ class Wizard:
         )
         return Path(str(answer))
 
-    def _ask_output_format(self) -> str:
+    def _ask_output_format(self, activities: list[Activity]) -> str:
         """Ask which format to write, defaulting to GPX.
 
-        FIT is offered but labelled experimental, and choosing it earns a one-line
-        heads-up that the writer is new and best-effort.
+        GPX cannot store a ride without GPS, so when no input has a position it
+        is left out of the choices and TCX becomes the default. FIT is offered
+        but labelled experimental, and choosing it earns a one-line heads-up that
+        the writer is new and best-effort.
         """
+        gps = any(_has_position(activity) for activity in activities)
+        choices = [
+            questionary.Choice("TCX: no temperature channel", value="tcx"),
+            questionary.Choice(
+                "FIT: binary, like your device (experimental)", value="fit"
+            ),
+        ]
+        if gps:
+            choices.insert(
+                0,
+                questionary.Choice("GPX: works everywhere (recommended)", value="gpx"),
+            )
+        else:
+            self._console.print(
+                "[green]These recordings have no GPS, and GPX can't hold a ride "
+                "without a position, so I'll suggest TCX.[/green]"
+            )
         answer = str(
             _ask(
                 questionary.select(
                     "What format should the merged file be?",
-                    choices=[
-                        questionary.Choice(
-                            "GPX: works everywhere (recommended)", value="gpx"
-                        ),
-                        questionary.Choice("TCX: no temperature channel", value="tcx"),
-                        questionary.Choice(
-                            "FIT: binary, like your device (experimental)",
-                            value="fit",
-                        ),
-                    ],
-                    default="gpx",
+                    choices=choices,
+                    default="gpx" if gps else "tcx",
                 )
             )
         )
